@@ -6,6 +6,7 @@ Desktop app to select camera RAW files (including `.cr2`), merge them to OpenEXR
 
 - Select RAW inputs from the current folder, a chosen folder, or manual file selection.
 - Merge selected RAW exposures into a single OpenEXR (`.exr`) output.
+- Automatically align bracketed RAW frames before HDR merge.
 - Choose RAW decode color space (`sRGB`, `Adobe RGB`, `Wide`, `ProPhoto`, `XYZ`, `RAW`).
 - Choose base frame strategy (`Middle`, `Darkest`, `Brightest`) for exposure anchoring.
 - Compare previous vs current preview in one frame with an A/B split slider.
@@ -14,7 +15,7 @@ Desktop app to select camera RAW files (including `.cr2`), merge them to OpenEXR
 ## Known Limitations
 
 - No true motion deghosting is currently applied.
-- Best results are with static tripod brackets and consistent framing.
+- Alignment is global (MTB) and works best for small camera movement; large subject motion can still create ghosts.
 - In-app preview is an LDR preview image for comparison, not full HDR display.
 - Final `.exr` appearance can vary by editor due to viewer tone-mapping and color management defaults.
 

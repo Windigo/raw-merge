@@ -122,6 +122,16 @@ def get_base_index(images: List[np.ndarray], base_frame: str) -> int:
     return len(images) // 2
 
 
+def align_images_mtb(images: List[np.ndarray]) -> List[np.ndarray]:
+    if len(images) < 2:
+        return images
+
+    align_mtb = cv2.createAlignMTB()
+    aligned = [image.copy() for image in images]
+    align_mtb.process(images, aligned)
+    return aligned
+
+
 def merge_to_hdr(
     file_paths: List[str],
     output_path: str,
@@ -142,7 +152,7 @@ def merge_to_hdr(
         if image.shape[0] != first_h or image.shape[1] != first_w:
             raise ValueError("All selected RAW images must have the same resolution")
 
-    aligned = images
+    aligned = align_images_mtb(images)
 
     times = np.array(exposures, dtype=np.float32)
     if np.allclose(times, times[0]):
