@@ -378,34 +378,29 @@ class HdrMergeApp extends LitElement {
       min-height: 0;
     }
 
-    .split-controls {
-      display: grid;
-      gap: 6px;
-      margin-top: 10px;
+    .preview-canvas-wrap {
+      position: relative;
+      min-height: 0;
     }
 
-    .split-controls-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      font-size: 12px;
-      opacity: 0.9;
-    }
-
-    .split-controls input[type="range"] {
-      width: 100%;
-      cursor: pointer;
+    .split-line-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 18px;
+      transform: translateX(-50%);
+      cursor: col-resize;
+      z-index: 2;
+      touch-action: none;
     }
 
     canvas {
       display: block;
       width: 100%;
       max-width: 100%;
-      height: 100%;
+      height: auto;
       min-height: 220px;
-      max-height: none;
-      object-fit: contain;
+      max-height: min(62vh, 760px);
       border: 1px solid #374151;
       border-radius: 12px;
       background: #030712;
@@ -537,6 +532,7 @@ class HdrMergeApp extends LitElement {
   private currentCanvas?: HTMLCanvasElement;
   private currentBitmap?: ImageBitmap;
   private previousBitmap?: ImageBitmap;
+  private splitLineDragging = false;
   private thumbnailLoadGeneration = 0;
 
   private zoomScale = 1;
@@ -596,6 +592,7 @@ class HdrMergeApp extends LitElement {
   }
 
   disconnectedCallback(): void {
+    this.endSplitLineDrag();
     this.revokeThumbnailUrls();
     super.disconnectedCallback();
   }
@@ -666,7 +663,9 @@ class HdrMergeApp extends LitElement {
         <section class="viewer">
           <div class="panel preview-panel">
             <h2 class="title">
-              ${this.hasCompareSources() ? "A/B Split Preview" : "Merged preview"}
+              ${this.hasCompareSources()
+                ? "A/B Split Preview"
+                : "Merged preview"}
             </h2>
             <p class="subtitle">
               ${this.hasCompareSources()
@@ -676,24 +675,6 @@ class HdrMergeApp extends LitElement {
                   : `B: ${this.previewSettingsLabel}`}
             </p>
             ${this.renderPreviewCanvas()}
-            ${this.hasCompareSources()
-              ? html`<div class="split-controls">
-                  <div class="split-controls-row">
-                    <span>A</span>
-                    <span>${Math.round(this.splitPercent)}%</span>
-                    <span>B</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="3"
-                    max="97"
-                    step="1"
-                    .value=${String(this.splitPercent)}
-                    @input=${this.onSplitPercentInput}
-                    aria-label="Split position"
-                  />
-                </div>`
-              : ""}
           </div>
 
           <div class="settings-grid">
@@ -995,14 +976,23 @@ class HdrMergeApp extends LitElement {
   }
 
   private renderPreviewCanvas() {
-    return html`<canvas
-      id="currentCanvas"
-      @wheel=${this.onCanvasWheel}
-      @touchstart=${this.onCanvasTouchStart}
-      @touchmove=${this.onCanvasTouchMove}
-      @touchend=${this.onCanvasTouchEnd}
-      @touchcancel=${this.onCanvasTouchEnd}
-    ></canvas>`;
+    return html`<div class="preview-canvas-wrap">
+      <canvas
+        id="currentCanvas"
+        @wheel=${this.onCanvasWheel}
+        @touchstart=${this.onCanvasTouchStart}
+        @touchmove=${this.onCanvasTouchMove}
+        @touchend=${this.onCanvasTouchEnd}
+        @touchcancel=${this.onCanvasTouchEnd}
+      ></canvas>
+      ${this.hasCompareSources()
+        ? html`<div
+            class="split-line-handle"
+            style=${`left:${this.splitHandleLeftPercent()}%;`}
+            @mousedown=${this.onSplitHandleMouseDown}
+          ></div>`
+        : ""}
+    </div>`;
   }
 
   protected updated(): void {
@@ -1103,6 +1093,7 @@ class HdrMergeApp extends LitElement {
     this.currentPreviewPath = "";
     this.previousPreviewPath = "";
     this.splitPercent = 50;
+    this.endSplitLineDrag();
     this.disposeBitmaps();
     this.clearPreviewCanvases();
 
@@ -1267,7 +1258,9 @@ class HdrMergeApp extends LitElement {
         );
       }
       if (!this.currentBitmap && this.currentPreviewPath) {
-        this.currentBitmap = await this.loadPreviewBitmap(this.currentPreviewPath);
+        this.currentBitmap = await this.loadPreviewBitmap(
+          this.currentPreviewPath,
+        );
       }
     }
 
@@ -1287,7 +1280,7 @@ class HdrMergeApp extends LitElement {
     }
 
     const displayBitmap = splitMode
-      ? this.currentBitmap ?? this.previousBitmap
+      ? (this.currentBitmap ?? this.previousBitmap)
       : this.singleViewTarget === "a"
         ? this.previousBitmap
         : this.currentBitmap;
@@ -1301,20 +1294,14 @@ class HdrMergeApp extends LitElement {
 
     this.currentCanvas.width = width;
     this.currentCanvas.height = height;
-    this.clampPan(width, height);
     context.clearRect(0, 0, width, height);
-    context.save();
-    context.setTransform(
-      this.zoomScale,
-      0,
-      0,
-      this.zoomScale,
-      this.panX,
-      this.panY,
-    );
 
     if (splitMode && this.previousBitmap && this.currentBitmap) {
+      this.zoomScale = 1;
+      this.panX = 0;
+      this.panY = 0;
       const splitX = Math.round((width * this.splitPercent) / 100);
+      context.save();
       context.drawImage(
         this.previousBitmap,
         0,
@@ -1342,24 +1329,23 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
+    this.clampPan(width, height);
+    context.save();
+    context.setTransform(
+      this.zoomScale,
+      0,
+      0,
+      this.zoomScale,
+      this.panX,
+      this.panY,
+    );
     context.drawImage(displayBitmap, 0, 0);
     context.restore();
   }
 
-  private onSplitPercentInput(event: Event): void {
-    const target = event.currentTarget as HTMLInputElement;
-    const value = Number(target.value);
-    if (!Number.isFinite(value)) {
-      return;
-    }
-
-    this.splitPercent = Math.min(97, Math.max(3, value));
-    void this.renderPreviewIfPossible();
-  }
-
   private drawSplitGuide(
     context: CanvasRenderingContext2D,
-    splitX: number,
+    splitCanvasX: number,
     width: number,
     height: number,
   ): void {
@@ -1368,8 +1354,8 @@ class HdrMergeApp extends LitElement {
     context.strokeStyle = "rgba(255, 255, 255, 0.9)";
     context.lineWidth = 3;
     context.beginPath();
-    context.moveTo(splitX + 0.5, 0);
-    context.lineTo(splitX + 0.5, height);
+    context.moveTo(splitCanvasX + 0.5, 0);
+    context.lineTo(splitCanvasX + 0.5, height);
     context.stroke();
 
     context.fillStyle = "rgba(255, 255, 255, 0.95)";
@@ -1382,7 +1368,71 @@ class HdrMergeApp extends LitElement {
     context.restore();
   }
 
+  private onSplitHandleMouseDown(event: MouseEvent): void {
+    if (!this.hasCompareSources() || !this.currentCanvas) {
+      return;
+    }
+
+    if (event.button !== 0) {
+      return;
+    }
+
+    this.splitLineDragging = true;
+    window.addEventListener("mousemove", this.onSplitDragMouseMove);
+    window.addEventListener("mouseup", this.onSplitDragMouseUp);
+    this.updateSplitFromClientX(event.clientX);
+    event.preventDefault();
+  }
+
+  private onSplitDragMouseMove = (event: MouseEvent): void => {
+    if (!this.splitLineDragging) {
+      return;
+    }
+
+    this.updateSplitFromClientX(event.clientX);
+    event.preventDefault();
+  };
+
+  private onSplitDragMouseUp = (event: MouseEvent): void => {
+    if (!this.splitLineDragging) {
+      return;
+    }
+
+    this.updateSplitFromClientX(event.clientX);
+    this.endSplitLineDrag();
+    event.preventDefault();
+  };
+
+  private endSplitLineDrag(): void {
+    window.removeEventListener("mousemove", this.onSplitDragMouseMove);
+    window.removeEventListener("mouseup", this.onSplitDragMouseUp);
+    this.splitLineDragging = false;
+  }
+
+  private updateSplitFromClientX(clientX: number): void {
+    if (!this.currentCanvas) {
+      return;
+    }
+
+    const rect = this.currentCanvas.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+
+    const rawPercent = ((clientX - rect.left) / rect.width) * 100;
+    this.splitPercent = Math.min(97, Math.max(3, rawPercent));
+    void this.renderPreviewIfPossible();
+  }
+
+  private splitHandleLeftPercent(): number {
+    return this.splitPercent;
+  }
+
   private onCanvasWheel(event: WheelEvent): void {
+    if (this.hasCompareSources()) {
+      return;
+    }
+
     if (!event.ctrlKey) {
       return;
     }
@@ -1400,7 +1450,6 @@ class HdrMergeApp extends LitElement {
     const zoomFactor = Math.exp(-event.deltaY * 0.0025);
     this.applyZoomAtPoint(focalX, focalY, this.zoomScale * zoomFactor);
   }
-
 
   private onCanvasTouchStart(event: TouchEvent): void {
     if (!this.currentCanvas) {
@@ -1505,7 +1554,6 @@ class HdrMergeApp extends LitElement {
       y: ((touch.clientY - rect.top) * this.currentCanvas.height) / rect.height,
     };
   }
-
 
   private applyZoomAtPoint(
     focalX: number,
