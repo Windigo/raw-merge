@@ -17,6 +17,19 @@ type MergeOptions = {
   baseFrame?: "middle" | "darkest" | "brightest";
 };
 
+type SuggestedSet = {
+  id: string;
+  label: string;
+  count: number;
+  confidence: "high" | "medium" | "low";
+  score: number;
+  files: string[];
+};
+
+type SuggestOptions = {
+  maxGapSeconds?: number;
+};
+
 const api = {
   listHdrFiles: (): Promise<HdrListResponse> =>
     ipcRenderer.invoke("hdr:listFiles"),
@@ -30,6 +43,11 @@ const api = {
     ipcRenderer.invoke("hdr:readFile", fileName),
   getRawThumbnail: (filePath: string): Promise<Uint8Array> =>
     ipcRenderer.invoke("hdr:getRawThumbnail", filePath),
+  suggestSets: (
+    filePaths: string[],
+    options?: SuggestOptions,
+  ): Promise<SuggestedSet[]> =>
+    ipcRenderer.invoke("hdr:suggestSets", filePaths, options),
   mergeRawToHdr: (
     filePaths: string[],
     options?: MergeOptions,

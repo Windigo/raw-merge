@@ -97,6 +97,19 @@ type MergeOptions = {
   baseFrame?: "middle" | "darkest" | "brightest";
 };
 
+type SuggestedSet = {
+  id: string;
+  label: string;
+  count: number;
+  confidence: "high" | "medium" | "low";
+  score: number;
+  files: string[];
+};
+
+type SuggestOptions = {
+  maxGapSeconds?: number;
+};
+
 function getPythonExecutable(): string {
   if (process.env.HDR_MERGE_PYTHON) {
     return process.env.HDR_MERGE_PYTHON;
@@ -121,6 +134,10 @@ function getMergeScriptPath(): string {
 
 function getThumbnailScriptPath(): string {
   return path.join(app.getAppPath(), "python", "raw_thumbnail.py");
+}
+
+function getSuggestScriptPath(): string {
+  return path.join(app.getAppPath(), "python", "suggest_hdr_sets.py");
 }
 
 async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
@@ -161,6 +178,58 @@ async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
 
       const output = Buffer.concat(chunks);
       resolve(new Uint8Array(output));
+    });
+  });
+}
+
+async function suggestHdrSets(
+  filePaths: string[],
+  options?: SuggestOptions,
+): Promise<SuggestedSet[]> {
+  const pythonExecutable = getPythonExecutable();
+  const scriptPath = getSuggestScriptPath();
+  const maxGapSeconds = Math.max(1, options?.maxGapSeconds ?? 30);
+
+  return new Promise<SuggestedSet[]>((resolve, reject) => {
+    const child = spawn(
+      pythonExecutable,
+      [scriptPath, "--max-gap", String(maxGapSeconds), ...filePaths],
+      {
+        cwd: app.getAppPath(),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Failed to start suggest process: ${error.message}`));
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const details = stderr.trim() || `exit code ${code}`;
+        reject(new Error(`Set suggestion failed: ${details}`));
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stdout.trim()) as { sets?: SuggestedSet[] };
+        resolve(parsed.sets ?? []);
+      } catch {
+        reject(
+          new Error("Set suggestion completed but returned invalid output."),
+        );
+      }
     });
   });
 }
@@ -284,6 +353,11 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("hdr:getRawThumbnail", async (_event, filePath: string) =>
     generateRawThumbnail(filePath),
+  );
+  ipcMain.handle(
+    "hdr:suggestSets",
+    async (_event, filePaths: string[], options?: SuggestOptions) =>
+      suggestHdrSets(filePaths, options),
   );
   ipcMain.handle(
     "hdr:mergeRawToHdr",

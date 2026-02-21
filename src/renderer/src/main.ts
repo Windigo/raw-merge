@@ -7,6 +7,15 @@ type TreeNode = {
   children?: Map<string, unknown>;
 };
 
+type SuggestedSet = {
+  id: string;
+  label: string;
+  count: number;
+  confidence: "high" | "medium" | "low";
+  score: number;
+  files: string[];
+};
+
 const LAST_FOLDER_STORAGE_KEY = "hdr-merge:last-folder";
 
 @customElement("hdr-merge-app")
@@ -29,7 +38,9 @@ class HdrMergeApp extends LitElement {
   static styles = css`
     :host {
       display: block;
-      min-height: 100vh;
+      width: 100%;
+      min-height: 100%;
+      height: 100%;
       background: #111827;
       color: #e5e7eb;
       font-family:
@@ -48,9 +59,16 @@ class HdrMergeApp extends LitElement {
 
     .layout {
       display: grid;
-      grid-template-columns: 380px 1fr;
+      grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
       gap: 20px;
-      align-items: start;
+      align-items: stretch;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .sidebar {
+      min-height: 0;
+      overflow: auto;
     }
 
     .panel {
@@ -89,6 +107,26 @@ class HdrMergeApp extends LitElement {
       gap: 8px;
       width: 100%;
       overflow: hidden;
+    }
+
+    .suggestion-tolerance {
+      display: grid;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .suggestion-tolerance-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .suggestion-tolerance input[type="range"] {
+      width: 100%;
+      cursor: pointer;
     }
 
     .folder-picker-button {
@@ -158,6 +196,12 @@ class HdrMergeApp extends LitElement {
       gap: 8px;
     }
 
+    .suggested-tag {
+      font-size: 11px;
+      opacity: 0.8;
+      letter-spacing: 0.02em;
+    }
+
     .tree-thumb {
       width: 36px;
       height: 36px;
@@ -201,9 +245,61 @@ class HdrMergeApp extends LitElement {
       padding: 0;
     }
 
+    .suggestion-panel {
+      border-top: 1px solid #374151;
+      margin-top: 8px;
+      padding-top: 8px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .suggestion-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .suggestion-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 6px;
+      max-height: 180px;
+      overflow: auto;
+    }
+
+    .suggestion-item {
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      background: #0f172a;
+    }
+
+    .suggestion-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .confidence {
+      border: 1px solid #4b5563;
+      border-radius: 999px;
+      padding: 1px 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
     .settings-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       margin-top: 10px;
     }
@@ -270,10 +366,26 @@ class HdrMergeApp extends LitElement {
       display: grid;
       gap: 14px;
       grid-template-columns: 1fr;
+      grid-template-rows: minmax(0, 1fr) auto;
+      min-height: 0;
+      height: 100%;
+      overflow: auto;
+    }
+
+    .preview-panel {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      min-height: 0;
     }
 
     canvas {
+      display: block;
       width: 100%;
+      max-width: 100%;
+      height: 100%;
+      min-height: 220px;
+      max-height: none;
+      object-fit: contain;
       border: 1px solid #374151;
       border-radius: 12px;
       background: #030712;
@@ -284,6 +396,56 @@ class HdrMergeApp extends LitElement {
       margin-top: 10px;
       color: #fca5a5;
       font-size: 13px;
+    }
+
+    @media (max-width: 1220px) {
+      :host {
+        padding: 14px;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+        gap: 14px;
+        height: auto;
+      }
+
+      .sidebar {
+        overflow: visible;
+      }
+
+      .viewer {
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+        grid-template-rows: auto auto;
+      }
+
+      .preview-panel {
+        grid-template-rows: auto auto auto;
+      }
+
+      canvas {
+        height: auto;
+        max-height: min(62vh, 760px);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-height: 900px) {
+      canvas {
+        min-height: 180px;
+      }
+    }
+
+    @media (max-height: 760px) {
+      canvas {
+        min-height: 140px;
+      }
     }
   `;
 
@@ -326,9 +488,6 @@ class HdrMergeApp extends LitElement {
   private previousPreviewSettingsLabel = "";
 
   @state()
-  private splitPercent = 50;
-
-  @state()
   private singleViewTarget: "a" | "b" = "b";
 
   @state()
@@ -337,13 +496,24 @@ class HdrMergeApp extends LitElement {
   @state()
   private thumbnailLoading = new Set<string>();
 
+  @state()
+  private suggestedSets: SuggestedSet[] = [];
+
+  @state()
+  private suggestionBusy = false;
+
+  @state()
+  private suggestionError = "";
+
+  @state()
+  private suggestionMaxGapSeconds = 30;
+
   private currentPreviewPath = "";
   private previousPreviewPath = "";
 
   private currentCanvas?: HTMLCanvasElement;
   private currentBitmap?: ImageBitmap;
   private previousBitmap?: ImageBitmap;
-  private splitDragPointerId?: number;
   private thumbnailLoadGeneration = 0;
 
   private zoomScale = 1;
@@ -362,17 +532,21 @@ class HdrMergeApp extends LitElement {
     lastY: number;
   };
 
-  private getApi() {
-    if (!window.hdrApi) {
-      throw new Error(
-        "Renderer bridge not available. Restart the app and ensure preload is loaded.",
-      );
-    }
-    return window.hdrApi;
-  }
+  private async getApi() {
+    const maxWaitMs = 1500;
+    const stepMs = 50;
+    const start = Date.now();
 
-  private hasSplitSources(): boolean {
-    return Boolean(this.previousPreviewPath && this.currentPreviewPath);
+    while (Date.now() - start <= maxWaitMs) {
+      if (window.hdrApi) {
+        return window.hdrApi;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, stepMs));
+    }
+
+    throw new Error(
+      "Renderer bridge not available. Restart the app and ensure preload is loaded.",
+    );
   }
 
   private folderPickerLabel(): string {
@@ -402,7 +576,7 @@ class HdrMergeApp extends LitElement {
   render() {
     return html`
       <div class="layout">
-        <section class="panel">
+        <section class="panel sidebar">
           <h1 class="title">RAW files for HDR merge</h1>
 
           <section class="folder-browser">
@@ -427,6 +601,22 @@ class HdrMergeApp extends LitElement {
                   : "Select all"}
               </button>
             </div>
+            <div class="suggestion-tolerance">
+              <div class="suggestion-tolerance-row">
+                <span>Bracket matching</span>
+                <span>${this.suggestionMaxGapSeconds}s</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="120"
+                step="1"
+                .value=${String(this.suggestionMaxGapSeconds)}
+                @input=${this.onSuggestionToleranceInput}
+                ?disabled=${this.files.length < 2}
+                aria-label="Bracket matching tolerance in seconds"
+              />
+            </div>
             ${this.renderFolderTree()}
           </section>
 
@@ -447,25 +637,15 @@ class HdrMergeApp extends LitElement {
         </section>
 
         <section class="viewer">
-          ${this.hasSplitSources()
-            ? html`
-                <div class="panel">
-                  <h2 class="title">A/B Split Preview</h2>
-                  <p class="subtitle">Drag split line</p>
-                  ${this.renderPreviewCanvas()}
-                </div>
-              `
-            : html`
-                <div class="panel">
-                  <h2 class="title">Merged preview</h2>
-                  <p class="subtitle">
-                    ${this.singleViewTarget === "a"
-                      ? `A: ${this.previousPreviewSettingsLabel}`
-                      : `B: ${this.previewSettingsLabel}`}
-                  </p>
-                  ${this.renderPreviewCanvas()}
-                </div>
-              `}
+          <div class="panel preview-panel">
+            <h2 class="title">Merged preview</h2>
+            <p class="subtitle">
+              ${this.singleViewTarget === "a"
+                ? `A: ${this.previousPreviewSettingsLabel}`
+                : `B: ${this.previewSettingsLabel}`}
+            </p>
+            ${this.renderPreviewCanvas()}
+          </div>
 
           <div class="settings-grid">
             <section class="settings-card">
@@ -561,7 +741,9 @@ class HdrMergeApp extends LitElement {
       this.error = "";
       this.isBusy = true;
       try {
-        const result = await this.getApi().listHdrFilesInFolder(savedFolder);
+        const result = await (
+          await this.getApi()
+        ).listHdrFilesInFolder(savedFolder);
         this.applyFileListResult(result);
         return;
       } catch {
@@ -574,39 +756,70 @@ class HdrMergeApp extends LitElement {
     await this.refreshFiles();
   }
 
+  private async refreshSuggestedSets(): Promise<void> {
+    this.suggestionError = "";
+    if (this.files.length < 2) {
+      this.suggestedSets = [];
+      return;
+    }
+
+    this.suggestionBusy = true;
+    try {
+      this.suggestedSets = await (
+        await this.getApi()
+      ).suggestSets(this.files, {
+        maxGapSeconds: this.suggestionMaxGapSeconds,
+      });
+    } catch (error) {
+      this.suggestedSets = [];
+      this.suggestionError =
+        error instanceof Error ? error.message : "Failed to suggest HDR sets.";
+    } finally {
+      this.suggestionBusy = false;
+    }
+  }
+
   private renderFolderTree() {
-    const tree = this.buildTreeNodes();
-    if (tree.length === 0) {
+    if (this.files.length === 0) {
       return html`<p class="subtitle">No RAW files found.</p>`;
     }
 
-    return html`<ul class="file-tree">
-      ${this.renderTreeNodes(tree)}
-    </ul>`;
+    const tree = this.buildTreeNodes();
+    const suggestedTags = this.buildSuggestedTags();
+
+    return html`${this.suggestionBusy
+        ? html`<p class="subtitle">Updating suggestions…</p>`
+        : ""}
+      ${this.suggestionError
+        ? html`<p class="error">${this.suggestionError}</p>`
+        : ""}
+      <ul class="file-tree">
+        ${this.renderTreeNodes(tree, suggestedTags)}
+      </ul>`;
   }
 
-  private renderTreeNodes(nodes: TreeNode[]): TemplateResult[] {
+  private onSuggestionToleranceInput(event: Event): void {
+    const target = event.currentTarget as HTMLInputElement;
+    const value = Number(target.value);
+    if (!Number.isFinite(value) || value < 1) {
+      return;
+    }
+
+    this.suggestionMaxGapSeconds = Math.round(value);
+    void this.refreshSuggestedSets();
+  }
+
+  private renderTreeNodes(
+    nodes: TreeNode[],
+    suggestedTags: Map<string, string[]>,
+  ): TemplateResult[] {
     return nodes.map((node) => {
       if (node.path) {
-        const thumbnailUrl = this.thumbnailUrls[node.path];
-        const thumbnailIsLoading = this.thumbnailLoading.has(node.path);
-        return html`<li class="tree-file">
-          <label class="tree-file-label">
-            <input
-              type="checkbox"
-              .checked=${this.selected.has(node.path)}
-              @change=${(event: Event) => this.toggleFile(node.path!, event)}
-            />
-            ${thumbnailUrl
-              ? html`<img class="tree-thumb" src=${thumbnailUrl} alt="" />`
-              : html`<span class="tree-thumb-placeholder"
-                  >${thumbnailIsLoading
-                    ? html`<span class="tree-thumb-spinner"></span>`
-                    : ""}</span
-                >`}
-            <span>${node.name}</span>
-          </label>
-        </li>`;
+        return this.renderFileNode(
+          node.path,
+          node.name,
+          suggestedTags.get(node.path) ?? [],
+        );
       }
 
       const children = this.mapToSortedNodes(
@@ -616,16 +829,62 @@ class HdrMergeApp extends LitElement {
         <details open>
           <summary>${node.name}</summary>
           <ul class="tree-children">
-            ${this.renderTreeNodes(children)}
+            ${this.renderTreeNodes(children, suggestedTags)}
           </ul>
         </details>
       </li>`;
     });
   }
 
-  private buildTreeNodes(): TreeNode[] {
+  private renderFileNode(
+    filePath: string,
+    name: string,
+    tags: string[] = [],
+  ): TemplateResult {
+    const thumbnailUrl = this.thumbnailUrls[filePath];
+    const thumbnailIsLoading = this.thumbnailLoading.has(filePath);
+    return html`<li class="tree-file">
+      <label class="tree-file-label">
+        <input
+          type="checkbox"
+          .checked=${this.selected.has(filePath)}
+          @change=${(event: Event) => this.toggleFile(filePath, event)}
+        />
+        ${thumbnailUrl
+          ? html`<img class="tree-thumb" src=${thumbnailUrl} alt="" />`
+          : html`<span class="tree-thumb-placeholder"
+              >${thumbnailIsLoading
+                ? html`<span class="tree-thumb-spinner"></span>`
+                : ""}</span
+            >`}
+        <span>${name}</span>
+        ${tags.map((tag) => html`<span class="suggested-tag">[${tag}]</span>`)}
+      </label>
+    </li>`;
+  }
+
+  private buildSuggestedTags(): Map<string, string[]> {
+    const tagsByFile = new Map<string, string[]>();
+    const availableFiles = new Set(this.files);
+
+    this.suggestedSets.forEach((set, index) => {
+      const tag = `S${index + 1}`;
+      for (const filePath of set.files) {
+        if (!availableFiles.has(filePath)) {
+          continue;
+        }
+        const tags = tagsByFile.get(filePath) ?? [];
+        tags.push(tag);
+        tagsByFile.set(filePath, tags);
+      }
+    });
+
+    return tagsByFile;
+  }
+
+  private buildTreeNodes(filesToUse: string[] = this.files): TreeNode[] {
     const root = new Map<string, unknown>();
-    for (const filePath of this.files) {
+    for (const filePath of filesToUse) {
       const relative = this.relativeToFolder(filePath);
       const parts = relative.split("/").filter(Boolean);
       if (parts.length === 0) {
@@ -690,11 +949,6 @@ class HdrMergeApp extends LitElement {
     return html`<canvas
       id="currentCanvas"
       @wheel=${this.onCanvasWheel}
-      @pointerdown=${this.onCanvasPointerDown}
-      @pointermove=${this.onCanvasPointerMove}
-      @pointerup=${this.onCanvasPointerUp}
-      @pointercancel=${this.onCanvasPointerUp}
-      @pointerleave=${this.onCanvasPointerLeave}
       @touchstart=${this.onCanvasTouchStart}
       @touchmove=${this.onCanvasTouchMove}
       @touchend=${this.onCanvasTouchEnd}
@@ -713,7 +967,7 @@ class HdrMergeApp extends LitElement {
     this.error = "";
     this.isBusy = true;
     try {
-      const result = await this.getApi().listHdrFiles();
+      const result = await (await this.getApi()).listHdrFiles();
       this.applyFileListResult(result);
     } catch (error) {
       this.error =
@@ -727,7 +981,7 @@ class HdrMergeApp extends LitElement {
     this.error = "";
     this.isBusy = true;
     try {
-      const result = await this.getApi().pickFolder();
+      const result = await (await this.getApi()).pickFolder();
       if (!result) {
         return;
       }
@@ -745,7 +999,7 @@ class HdrMergeApp extends LitElement {
     this.error = "";
     this.isBusy = true;
     try {
-      const result = await this.getApi().pickFiles();
+      const result = await (await this.getApi()).pickFiles();
       if (!result) {
         return;
       }
@@ -791,6 +1045,9 @@ class HdrMergeApp extends LitElement {
     this.selected = new Set();
     this.thumbnailUrls = {};
     this.thumbnailLoading = new Set(result.files);
+    this.suggestedSets = [];
+    this.suggestionBusy = false;
+    this.suggestionError = "";
     this.mergedOutputPath = "";
     this.previewSettingsLabel = "";
     this.previousPreviewSettingsLabel = "";
@@ -800,6 +1057,7 @@ class HdrMergeApp extends LitElement {
     this.clearPreviewCanvases();
 
     void this.loadThumbnails(result.files, this.thumbnailLoadGeneration);
+    void this.refreshSuggestedSets();
   }
 
   private async loadThumbnails(
@@ -812,7 +1070,7 @@ class HdrMergeApp extends LitElement {
       }
 
       try {
-        const thumbnail = await this.getApi().getRawThumbnail(filePath);
+        const thumbnail = await (await this.getApi()).getRawThumbnail(filePath);
         if (generation !== this.thumbnailLoadGeneration) {
           break;
         }
@@ -857,7 +1115,9 @@ class HdrMergeApp extends LitElement {
       const colorSpace = target === "a" ? this.colorSpaceA : this.colorSpaceB;
       const baseFrame = target === "a" ? this.baseFrameA : this.baseFrameB;
 
-      const merged = await this.getApi().mergeRawToHdr(targets, {
+      const merged = await (
+        await this.getApi()
+      ).mergeRawToHdr(targets, {
         colorSpace,
         baseFrame,
       });
@@ -925,7 +1185,7 @@ class HdrMergeApp extends LitElement {
   }
 
   private async loadPreviewBitmap(previewPath: string): Promise<ImageBitmap> {
-    const bytes = await this.getApi().readHdrFile(previewPath);
+    const bytes = await (await this.getApi()).readHdrFile(previewPath);
     const normalizedBytes = new Uint8Array(bytes);
     const arrayBuffer = normalizedBytes.buffer.slice(
       normalizedBytes.byteOffset,
@@ -955,9 +1215,7 @@ class HdrMergeApp extends LitElement {
     const primaryBitmap =
       this.singleViewTarget === "a" ? this.previousBitmap : this.currentBitmap;
 
-    const splitMode = this.hasSplitSources();
-
-    if (!splitMode && !primaryBitmap && primaryPath) {
+    if (!primaryBitmap && primaryPath) {
       if (this.singleViewTarget === "a") {
         this.previousBitmap = await this.loadPreviewBitmap(primaryPath);
       } else {
@@ -965,11 +1223,8 @@ class HdrMergeApp extends LitElement {
       }
     }
 
-    const displayBitmap = splitMode
-      ? this.currentBitmap
-      : this.singleViewTarget === "a"
-        ? this.previousBitmap
-        : this.currentBitmap;
+    const displayBitmap =
+      this.singleViewTarget === "a" ? this.previousBitmap : this.currentBitmap;
 
     if (!displayBitmap) {
       return;
@@ -991,55 +1246,6 @@ class HdrMergeApp extends LitElement {
       this.panX,
       this.panY,
     );
-
-    if (splitMode && this.previousPreviewPath && this.currentPreviewPath) {
-      if (!this.previousBitmap) {
-        this.previousBitmap = await this.loadPreviewBitmap(
-          this.previousPreviewPath,
-        );
-      }
-
-      if (!this.currentBitmap) {
-        this.currentBitmap = await this.loadPreviewBitmap(
-          this.currentPreviewPath,
-        );
-      }
-
-      if (this.previousBitmap && this.currentBitmap) {
-        const splitX = Math.round((width * this.splitPercent) / 100);
-        context.drawImage(
-          this.previousBitmap,
-          0,
-          0,
-          splitX,
-          height,
-          0,
-          0,
-          splitX,
-          height,
-        );
-        context.drawImage(
-          this.currentBitmap,
-          splitX,
-          0,
-          width - splitX,
-          height,
-          splitX,
-          0,
-          width - splitX,
-          height,
-        );
-        context.strokeStyle = "#f9fafb";
-        context.lineWidth = 2;
-        context.beginPath();
-        context.moveTo(splitX + 0.5, 0);
-        context.lineTo(splitX + 0.5, height);
-        context.stroke();
-        context.restore();
-        this.drawSplitLabels(context, splitX);
-        return;
-      }
-    }
 
     context.drawImage(displayBitmap, 0, 0);
     context.restore();
@@ -1064,67 +1270,6 @@ class HdrMergeApp extends LitElement {
     this.applyZoomAtPoint(focalX, focalY, this.zoomScale * zoomFactor);
   }
 
-  private onCanvasPointerDown(event: PointerEvent): void {
-    if (event.pointerType === "touch") {
-      return;
-    }
-
-    if (!this.hasSplitSources() || !this.currentCanvas) {
-      return;
-    }
-
-    const imageX = this.clientXToImageX(event.clientX);
-    const splitX = (this.currentCanvas.width * this.splitPercent) / 100;
-    const hitTolerance = 24 / this.zoomScale;
-
-    if (Math.abs(imageX - splitX) > hitTolerance) {
-      return;
-    }
-
-    this.splitDragPointerId = event.pointerId;
-    this.currentCanvas.setPointerCapture(event.pointerId);
-    this.updateSplitFromClientX(event.clientX);
-    event.preventDefault();
-  }
-
-  private onCanvasPointerMove(event: PointerEvent): void {
-    if (event.pointerType === "touch") {
-      return;
-    }
-
-    if (this.splitDragPointerId === undefined) {
-      this.updateSplitCursor(event.clientX);
-      return;
-    }
-
-    if (this.splitDragPointerId !== event.pointerId) {
-      return;
-    }
-
-    this.updateSplitFromClientX(event.clientX);
-    event.preventDefault();
-  }
-
-  private onCanvasPointerUp(event: PointerEvent): void {
-    if (!this.currentCanvas || this.splitDragPointerId !== event.pointerId) {
-      return;
-    }
-
-    this.updateSplitFromClientX(event.clientX);
-    if (this.currentCanvas.hasPointerCapture(event.pointerId)) {
-      this.currentCanvas.releasePointerCapture(event.pointerId);
-    }
-    this.splitDragPointerId = undefined;
-    this.updateSplitCursor(event.clientX);
-    event.preventDefault();
-  }
-
-  private onCanvasPointerLeave(): void {
-    if (!this.currentCanvas || this.splitDragPointerId !== undefined) {
-      return;
-    }
-    this.currentCanvas.style.cursor = "default";
-  }
 
   private onCanvasTouchStart(event: TouchEvent): void {
     if (!this.currentCanvas) {
@@ -1230,94 +1375,6 @@ class HdrMergeApp extends LitElement {
     };
   }
 
-  private clientXToImageX(clientX: number): number {
-    if (!this.currentCanvas) {
-      return 0;
-    }
-
-    const rect = this.currentCanvas.getBoundingClientRect();
-    const canvasX =
-      ((clientX - rect.left) * this.currentCanvas.width) / rect.width;
-    return (canvasX - this.panX) / this.zoomScale;
-  }
-
-  private updateSplitFromClientX(clientX: number): void {
-    if (!this.currentCanvas) {
-      return;
-    }
-
-    const imageX = this.clientXToImageX(clientX);
-    const clampedX = Math.min(this.currentCanvas.width, Math.max(0, imageX));
-    this.splitPercent = (clampedX / this.currentCanvas.width) * 100;
-    void this.renderPreviewIfPossible();
-  }
-
-  private updateSplitCursor(clientX: number): void {
-    if (!this.currentCanvas) {
-      return;
-    }
-
-    if (!this.hasSplitSources()) {
-      this.currentCanvas.style.cursor = "default";
-      return;
-    }
-
-    const imageX = this.clientXToImageX(clientX);
-    const splitX = (this.currentCanvas.width * this.splitPercent) / 100;
-    const hitTolerance = 24 / this.zoomScale;
-    this.currentCanvas.style.cursor =
-      Math.abs(imageX - splitX) <= hitTolerance ? "col-resize" : "default";
-  }
-
-  private drawSplitLabels(
-    context: CanvasRenderingContext2D,
-    splitX: number,
-  ): void {
-    if (!this.currentCanvas) {
-      return;
-    }
-
-    const rect = this.currentCanvas.getBoundingClientRect();
-    const pixelScaleX =
-      rect.width > 0 ? this.currentCanvas.width / rect.width : 1;
-    const pixelScaleY =
-      rect.height > 0 ? this.currentCanvas.height / rect.height : 1;
-    const pixelScale = Math.max(1, (pixelScaleX + pixelScaleY) * 0.5);
-
-    const splitCanvasX = splitX * this.zoomScale + this.panX;
-    const margin = 10 * pixelScale;
-    const centerY = this.currentCanvas.height * 0.5;
-
-    const leftText = "A";
-    const rightText = "B";
-
-    context.save();
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    const fontSize = Math.max(16, 18 * pixelScale);
-    context.font = `bold ${fontSize}px Inter, system-ui, sans-serif`;
-    context.textBaseline = "middle";
-
-    const offsetFromLine = 12 * pixelScale;
-    const leftX = Math.max(margin, splitCanvasX - offsetFromLine);
-    const rightX = Math.min(
-      this.currentCanvas.width - margin,
-      splitCanvasX + offsetFromLine,
-    );
-
-    context.strokeStyle = "rgba(0, 0, 0, 0.85)";
-    context.lineWidth = Math.max(2, 3 * pixelScale);
-    context.fillStyle = "#ffffff";
-
-    context.textAlign = "right";
-    context.strokeText(leftText, leftX, centerY);
-    context.fillText(leftText, leftX, centerY);
-
-    context.textAlign = "left";
-    context.strokeText(rightText, rightX, centerY);
-    context.fillText(rightText, rightX, centerY);
-
-    context.restore();
-  }
 
   private applyZoomAtPoint(
     focalX: number,
@@ -1354,7 +1411,6 @@ class HdrMergeApp extends LitElement {
     this.panY = 0;
     this.pinchState = undefined;
     this.panState = undefined;
-    this.splitDragPointerId = undefined;
     if (this.currentCanvas) {
       this.currentCanvas.style.cursor = "default";
     }

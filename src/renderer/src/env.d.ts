@@ -15,6 +15,19 @@ type MergeOptions = {
   baseFrame?: "middle" | "darkest" | "brightest";
 };
 
+type SuggestedSet = {
+  id: string;
+  label: string;
+  count: number;
+  confidence: "high" | "medium" | "low";
+  score: number;
+  files: string[];
+};
+
+type SuggestOptions = {
+  maxGapSeconds?: number;
+};
+
 interface Window {
   hdrApi: {
     listHdrFiles: () => Promise<HdrListResponse>;
@@ -23,6 +36,10 @@ interface Window {
     pickFiles: () => Promise<HdrListResponse | null>;
     readHdrFile: (fileName: string) => Promise<Uint8Array>;
     getRawThumbnail: (filePath: string) => Promise<Uint8Array>;
+    suggestSets: (
+      filePaths: string[],
+      options?: SuggestOptions,
+    ) => Promise<SuggestedSet[]>;
     mergeRawToHdr: (
       filePaths: string[],
       options?: MergeOptions,
