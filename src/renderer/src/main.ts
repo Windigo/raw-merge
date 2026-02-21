@@ -61,8 +61,8 @@ class HdrMergeApp extends LitElement {
       display: grid;
       grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
       gap: 20px;
-      align-items: stretch;
-      height: 100%;
+      align-items: start;
+      height: auto;
       min-height: 0;
     }
 
@@ -366,21 +366,26 @@ class HdrMergeApp extends LitElement {
       display: grid;
       gap: 14px;
       grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
       min-height: 0;
-      height: 100%;
-      overflow: auto;
+      height: auto;
+      overflow: visible;
+      align-content: start;
     }
 
     .preview-panel {
-      display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      display: block;
       min-height: 0;
     }
 
     .preview-canvas-wrap {
       position: relative;
       min-height: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      width: 100%;
+      overflow: hidden;
     }
 
     .split-line-handle {
@@ -396,11 +401,10 @@ class HdrMergeApp extends LitElement {
 
     canvas {
       display: block;
-      width: 100%;
+      width: auto;
       max-width: 100%;
       height: auto;
-      min-height: 220px;
-      max-height: min(62vh, 760px);
+      max-height: min(70vh, 820px);
       border: 1px solid #374151;
       border-radius: 12px;
       background: #030712;
@@ -438,28 +442,11 @@ class HdrMergeApp extends LitElement {
       .preview-panel {
         grid-template-rows: auto auto auto;
       }
-
-      canvas {
-        height: auto;
-        max-height: min(62vh, 760px);
-      }
     }
 
     @media (max-width: 980px) {
       .settings-grid {
         grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-height: 900px) {
-      canvas {
-        min-height: 180px;
-      }
-    }
-
-    @media (max-height: 760px) {
-      canvas {
-        min-height: 140px;
       }
     }
   `;
@@ -661,21 +648,7 @@ class HdrMergeApp extends LitElement {
         </section>
 
         <section class="viewer">
-          <div class="panel preview-panel">
-            <h2 class="title">
-              ${this.hasCompareSources()
-                ? "A/B Split Preview"
-                : "Merged preview"}
-            </h2>
-            <p class="subtitle">
-              ${this.hasCompareSources()
-                ? `A: ${this.previousPreviewSettingsLabel} · B: ${this.previewSettingsLabel}`
-                : this.singleViewTarget === "a"
-                  ? `A: ${this.previousPreviewSettingsLabel}`
-                  : `B: ${this.previewSettingsLabel}`}
-            </p>
-            ${this.renderPreviewCanvas()}
-          </div>
+          <div class="panel preview-panel">${this.renderPreviewCanvas()}</div>
 
           <div class="settings-grid">
             <section class="settings-card">
@@ -1613,6 +1586,8 @@ class HdrMergeApp extends LitElement {
     if (this.currentCanvas) {
       const currentContext = this.currentCanvas.getContext("2d");
       if (currentContext) {
+        this.currentCanvas.width = 1600;
+        this.currentCanvas.height = 900;
         currentContext.clearRect(
           0,
           0,
