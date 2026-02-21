@@ -1639,8 +1639,10 @@ class HdrMergeApp extends LitElement {
         return;
       }
 
+      const pinchRatio = distance / this.pinchState.startDistance;
+      const pinchGain = 1.22;
       const nextScale =
-        this.pinchState.startScale * (distance / this.pinchState.startDistance);
+        this.pinchState.startScale * Math.pow(pinchRatio, pinchGain);
       const anchorX = (firstPoint.x + secondPoint.x) / 2;
       const anchorY = (firstPoint.y + secondPoint.y) / 2;
       this.zoomScale = this.clampScale(nextScale);
