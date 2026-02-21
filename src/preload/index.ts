@@ -20,12 +20,16 @@ type MergeOptions = {
 const api = {
   listHdrFiles: (): Promise<HdrListResponse> =>
     ipcRenderer.invoke("hdr:listFiles"),
+  listHdrFilesInFolder: (folder: string): Promise<HdrListResponse> =>
+    ipcRenderer.invoke("hdr:listFilesInFolder", folder),
   pickFolder: (): Promise<HdrListResponse | null> =>
     ipcRenderer.invoke("hdr:pickFolder"),
   pickFiles: (): Promise<HdrListResponse | null> =>
     ipcRenderer.invoke("hdr:pickFiles"),
   readHdrFile: (fileName: string): Promise<Uint8Array> =>
     ipcRenderer.invoke("hdr:readFile", fileName),
+  getRawThumbnail: (filePath: string): Promise<Uint8Array> =>
+    ipcRenderer.invoke("hdr:getRawThumbnail", filePath),
   mergeRawToHdr: (
     filePaths: string[],
     options?: MergeOptions,

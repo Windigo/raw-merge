@@ -18,9 +18,11 @@ type MergeOptions = {
 interface Window {
   hdrApi: {
     listHdrFiles: () => Promise<HdrListResponse>;
+    listHdrFilesInFolder: (folder: string) => Promise<HdrListResponse>;
     pickFolder: () => Promise<HdrListResponse | null>;
     pickFiles: () => Promise<HdrListResponse | null>;
     readHdrFile: (fileName: string) => Promise<Uint8Array>;
+    getRawThumbnail: (filePath: string) => Promise<Uint8Array>;
     mergeRawToHdr: (
       filePaths: string[],
       options?: MergeOptions,

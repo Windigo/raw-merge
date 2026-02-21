@@ -119,6 +119,52 @@ function getMergeScriptPath(): string {
   return path.join(app.getAppPath(), "python", "merge_raw_to_hdr.py");
 }
 
+function getThumbnailScriptPath(): string {
+  return path.join(app.getAppPath(), "python", "raw_thumbnail.py");
+}
+
+async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
+  const pythonExecutable = getPythonExecutable();
+  const scriptPath = getThumbnailScriptPath();
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const child = spawn(
+      pythonExecutable,
+      [scriptPath, filePath, "--max-size", "80"],
+      {
+        cwd: app.getAppPath(),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    const chunks: Buffer[] = [];
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Failed to start thumbnail process: ${error.message}`));
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const details = stderr.trim() || `exit code ${code}`;
+        reject(new Error(`Thumbnail generation failed: ${details}`));
+        return;
+      }
+
+      const output = Buffer.concat(chunks);
+      resolve(new Uint8Array(output));
+    });
+  });
+}
+
 async function mergeRawImagesToHdr(
   filePaths: string[],
   options?: MergeOptions,
@@ -230,8 +276,14 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("hdr:listFiles", async () => listHdrFiles());
+  ipcMain.handle("hdr:listFilesInFolder", async (_event, folder: string) =>
+    listHdrFilesInFolder(folder),
+  );
   ipcMain.handle("hdr:readFile", async (_event, fileName: string) =>
     readHdrFile(fileName),
+  );
+  ipcMain.handle("hdr:getRawThumbnail", async (_event, filePath: string) =>
+    generateRawThumbnail(filePath),
   );
   ipcMain.handle(
     "hdr:mergeRawToHdr",
