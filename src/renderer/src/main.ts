@@ -40,7 +40,7 @@ class HdrMergeApp extends LitElement {
       display: block;
       width: 100%;
       min-height: 100%;
-      height: 100%;
+      height: auto;
       background: #111827;
       color: #e5e7eb;
       font-family:
@@ -61,13 +61,18 @@ class HdrMergeApp extends LitElement {
       display: grid;
       grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
       gap: 20px;
-      align-items: start;
+      align-items: stretch;
+      min-height: calc(100dvh - 40px);
       height: auto;
-      min-height: 0;
+    }
+
+    .layout > * {
+      min-width: 0;
     }
 
     .sidebar {
       min-height: 0;
+      min-width: 0;
       overflow: auto;
     }
 
@@ -76,6 +81,7 @@ class HdrMergeApp extends LitElement {
       border: 1px solid #374151;
       border-radius: 12px;
       padding: 14px;
+      min-width: 0;
     }
 
     .title {
@@ -188,12 +194,18 @@ class HdrMergeApp extends LitElement {
 
     .tree-file {
       padding: 4px 0;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .tree-file-label {
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
 
     .suggested-tag {
@@ -302,6 +314,12 @@ class HdrMergeApp extends LitElement {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       margin-top: 10px;
+      min-width: 0;
+      flex: 0 0 auto;
+      margin-top: auto;
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
     }
 
     .settings-card {
@@ -312,6 +330,8 @@ class HdrMergeApp extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 8px;
+      min-width: 0;
+      height: 152px;
     }
 
     .settings-title {
@@ -321,9 +341,17 @@ class HdrMergeApp extends LitElement {
       opacity: 0.95;
     }
 
+    .settings-controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      min-width: 0;
+    }
+
     .settings-row {
       display: grid;
       gap: 6px;
+      min-width: 0;
     }
 
     .settings-merge {
@@ -339,6 +367,7 @@ class HdrMergeApp extends LitElement {
       border-radius: 8px;
       cursor: pointer;
       font: inherit;
+      max-width: 100%;
     }
 
     button:disabled {
@@ -353,6 +382,7 @@ class HdrMergeApp extends LitElement {
       padding: 8px 12px;
       border-radius: 8px;
       font: inherit;
+      max-width: 100%;
     }
 
     label {
@@ -363,28 +393,35 @@ class HdrMergeApp extends LitElement {
     }
 
     .viewer {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 14px;
-      grid-template-columns: 1fr;
-      grid-template-rows: auto auto;
       min-height: 0;
-      height: auto;
+      min-width: 0;
+      height: 100%;
       overflow: visible;
-      align-content: start;
     }
 
     .preview-panel {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
       min-height: 0;
+      min-width: 0;
     }
 
     .preview-canvas-wrap {
       position: relative;
-      min-height: 0;
-      display: block;
-      width: fit-content;
+      width: 100%;
       max-width: 100%;
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       margin: 0 auto;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .split-line-handle {
@@ -403,7 +440,8 @@ class HdrMergeApp extends LitElement {
       width: auto;
       max-width: 100%;
       height: auto;
-      max-height: min(70vh, 820px);
+      max-height: 100%;
+      margin: 0 auto;
       border: 1px solid #374151;
       border-radius: 12px;
       background: #030712;
@@ -424,6 +462,8 @@ class HdrMergeApp extends LitElement {
       .layout {
         grid-template-columns: 1fr;
         gap: 14px;
+        align-items: start;
+        min-height: 0;
         height: auto;
       }
 
@@ -432,20 +472,32 @@ class HdrMergeApp extends LitElement {
       }
 
       .viewer {
-        height: auto;
+        height: 100%;
         min-height: 0;
         overflow: visible;
-        grid-template-rows: auto auto;
       }
 
-      .preview-panel {
-        grid-template-rows: auto auto auto;
+      .preview-canvas-wrap {
+        max-height: min(52vh, 620px);
+        min-height: 220px;
+      }
+
+      .settings-grid {
+        position: static;
       }
     }
 
     @media (max-width: 980px) {
       .settings-grid {
         grid-template-columns: 1fr;
+      }
+
+      .settings-controls {
+        grid-template-columns: 1fr;
+      }
+
+      .settings-card {
+        height: auto;
       }
     }
   `;
@@ -519,6 +571,7 @@ class HdrMergeApp extends LitElement {
   private currentBitmap?: ImageBitmap;
   private previousBitmap?: ImageBitmap;
   private splitLineDragging = false;
+  private splitDragPointerId: number | null = null;
   private thumbnailLoadGeneration = 0;
 
   private zoomScale = 1;
@@ -652,36 +705,38 @@ class HdrMergeApp extends LitElement {
           <div class="settings-grid">
             <section class="settings-card">
               <h3 class="settings-title">A Settings</h3>
-              <label class="settings-row">
-                <span>Color</span>
-                <select
-                  .value=${this.colorSpaceA}
-                  @change=${(event: Event) =>
-                    this.onColorSpaceChange("a", event)}
-                  ?disabled=${this.isBusy}
-                  aria-label="A output color space"
-                >
-                  ${HdrMergeApp.colorOptions.map(
-                    ([value, label]) =>
-                      html`<option value=${value}>${label}</option>`,
-                  )}
-                </select>
-              </label>
-              <label class="settings-row">
-                <span>Base</span>
-                <select
-                  .value=${this.baseFrameA}
-                  @change=${(event: Event) =>
-                    this.onBaseFrameChange("a", event)}
-                  ?disabled=${this.isBusy}
-                  aria-label="A base frame"
-                >
-                  ${HdrMergeApp.baseOptions.map(
-                    ([value, label]) =>
-                      html`<option value=${value}>${label}</option>`,
-                  )}
-                </select>
-              </label>
+              <div class="settings-controls">
+                <label class="settings-row">
+                  <span>Color</span>
+                  <select
+                    .value=${this.colorSpaceA}
+                    @change=${(event: Event) =>
+                      this.onColorSpaceChange("a", event)}
+                    ?disabled=${this.isBusy}
+                    aria-label="A output color space"
+                  >
+                    ${HdrMergeApp.colorOptions.map(
+                      ([value, label]) =>
+                        html`<option value=${value}>${label}</option>`,
+                    )}
+                  </select>
+                </label>
+                <label class="settings-row">
+                  <span>Base</span>
+                  <select
+                    .value=${this.baseFrameA}
+                    @change=${(event: Event) =>
+                      this.onBaseFrameChange("a", event)}
+                    ?disabled=${this.isBusy}
+                    aria-label="A base frame"
+                  >
+                    ${HdrMergeApp.baseOptions.map(
+                      ([value, label]) =>
+                        html`<option value=${value}>${label}</option>`,
+                    )}
+                  </select>
+                </label>
+              </div>
               <button
                 class="settings-merge"
                 @click=${() => this.mergeSelected("a")}
@@ -693,36 +748,38 @@ class HdrMergeApp extends LitElement {
 
             <section class="settings-card">
               <h3 class="settings-title">B Settings</h3>
-              <label class="settings-row">
-                <span>Color</span>
-                <select
-                  .value=${this.colorSpaceB}
-                  @change=${(event: Event) =>
-                    this.onColorSpaceChange("b", event)}
-                  ?disabled=${this.isBusy}
-                  aria-label="B output color space"
-                >
-                  ${HdrMergeApp.colorOptions.map(
-                    ([value, label]) =>
-                      html`<option value=${value}>${label}</option>`,
-                  )}
-                </select>
-              </label>
-              <label class="settings-row">
-                <span>Base</span>
-                <select
-                  .value=${this.baseFrameB}
-                  @change=${(event: Event) =>
-                    this.onBaseFrameChange("b", event)}
-                  ?disabled=${this.isBusy}
-                  aria-label="B base frame"
-                >
-                  ${HdrMergeApp.baseOptions.map(
-                    ([value, label]) =>
-                      html`<option value=${value}>${label}</option>`,
-                  )}
-                </select>
-              </label>
+              <div class="settings-controls">
+                <label class="settings-row">
+                  <span>Color</span>
+                  <select
+                    .value=${this.colorSpaceB}
+                    @change=${(event: Event) =>
+                      this.onColorSpaceChange("b", event)}
+                    ?disabled=${this.isBusy}
+                    aria-label="B output color space"
+                  >
+                    ${HdrMergeApp.colorOptions.map(
+                      ([value, label]) =>
+                        html`<option value=${value}>${label}</option>`,
+                    )}
+                  </select>
+                </label>
+                <label class="settings-row">
+                  <span>Base</span>
+                  <select
+                    .value=${this.baseFrameB}
+                    @change=${(event: Event) =>
+                      this.onBaseFrameChange("b", event)}
+                    ?disabled=${this.isBusy}
+                    aria-label="B base frame"
+                  >
+                    ${HdrMergeApp.baseOptions.map(
+                      ([value, label]) =>
+                        html`<option value=${value}>${label}</option>`,
+                    )}
+                  </select>
+                </label>
+              </div>
               <button
                 class="settings-merge"
                 @click=${() => this.mergeSelected("b")}
@@ -949,22 +1006,22 @@ class HdrMergeApp extends LitElement {
 
   private renderPreviewCanvas() {
     return html`<div class="preview-canvas-wrap">
-      <canvas
-        id="currentCanvas"
-        @wheel=${this.onCanvasWheel}
-        @touchstart=${this.onCanvasTouchStart}
-        @touchmove=${this.onCanvasTouchMove}
-        @touchend=${this.onCanvasTouchEnd}
-        @touchcancel=${this.onCanvasTouchEnd}
-      ></canvas>
-      ${this.hasCompareSources()
-        ? html`<div
-            class="split-line-handle"
-            style=${`left:${this.splitHandleLeftPercent()}%;`}
-            @mousedown=${this.onSplitHandleMouseDown}
-          ></div>`
-        : ""}
-    </div>`;
+        <canvas
+          id="currentCanvas"
+          @wheel=${this.onCanvasWheel}
+          @touchstart=${this.onCanvasTouchStart}
+          @touchmove=${this.onCanvasTouchMove}
+          @touchend=${this.onCanvasTouchEnd}
+          @touchcancel=${this.onCanvasTouchEnd}
+        ></canvas>
+        ${this.hasCompareSources()
+          ? html`<div
+              class="split-line-handle"
+              style=${this.splitHandleStyle()}
+              @pointerdown=${this.onSplitHandlePointerDown}
+            ></div>`
+          : ""}
+      </div>`;
   }
 
   protected updated(): void {
@@ -1269,32 +1326,44 @@ class HdrMergeApp extends LitElement {
     context.clearRect(0, 0, width, height);
 
     if (splitMode && this.previousBitmap && this.currentBitmap) {
-      this.zoomScale = 1;
-      this.panX = 0;
-      this.panY = 0;
+      this.clampPan(width, height);
       const splitX = Math.round((width * this.splitPercent) / 100);
+
       context.save();
+      context.beginPath();
+      context.rect(0, 0, splitX, height);
+      context.clip();
+      context.setTransform(
+        this.zoomScale,
+        0,
+        0,
+        this.zoomScale,
+        this.panX,
+        this.panY,
+      );
       context.drawImage(
         this.previousBitmap,
         0,
         0,
-        splitX,
-        height,
+      );
+      context.restore();
+
+      context.save();
+      context.beginPath();
+      context.rect(splitX, 0, width - splitX, height);
+      context.clip();
+      context.setTransform(
+        this.zoomScale,
         0,
         0,
-        splitX,
-        height,
+        this.zoomScale,
+        this.panX,
+        this.panY,
       );
       context.drawImage(
         this.currentBitmap,
-        splitX,
         0,
-        width - splitX,
-        height,
-        splitX,
         0,
-        width - splitX,
-        height,
       );
       context.restore();
       this.drawSplitGuide(context, splitX, width, height);
@@ -1340,24 +1409,28 @@ class HdrMergeApp extends LitElement {
     context.restore();
   }
 
-  private onSplitHandleMouseDown(event: MouseEvent): void {
+  private onSplitHandlePointerDown(event: PointerEvent): void {
     if (!this.hasCompareSources() || !this.currentCanvas) {
       return;
     }
 
-    if (event.button !== 0) {
+    if (event.pointerType === "mouse" && event.button !== 0) {
       return;
     }
 
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
     this.splitLineDragging = true;
-    window.addEventListener("mousemove", this.onSplitDragMouseMove);
-    window.addEventListener("mouseup", this.onSplitDragMouseUp);
+    this.splitDragPointerId = event.pointerId;
+    window.addEventListener("pointermove", this.onSplitDragPointerMove);
+    window.addEventListener("pointerup", this.onSplitDragPointerUp);
+    window.addEventListener("pointercancel", this.onSplitDragPointerUp);
     this.updateSplitFromClientX(event.clientX);
     event.preventDefault();
   }
 
-  private onSplitDragMouseMove = (event: MouseEvent): void => {
-    if (!this.splitLineDragging) {
+  private onSplitDragPointerMove = (event: PointerEvent): void => {
+    if (!this.splitLineDragging || this.splitDragPointerId !== event.pointerId) {
       return;
     }
 
@@ -1365,19 +1438,22 @@ class HdrMergeApp extends LitElement {
     event.preventDefault();
   };
 
-  private onSplitDragMouseUp = (event: MouseEvent): void => {
-    if (!this.splitLineDragging) {
+  private onSplitDragPointerUp = (event: PointerEvent): void => {
+    if (!this.splitLineDragging || this.splitDragPointerId !== event.pointerId) {
       return;
     }
 
     this.updateSplitFromClientX(event.clientX);
     this.endSplitLineDrag();
+    void this.renderPreviewIfPossible();
     event.preventDefault();
   };
 
   private endSplitLineDrag(): void {
-    window.removeEventListener("mousemove", this.onSplitDragMouseMove);
-    window.removeEventListener("mouseup", this.onSplitDragMouseUp);
+    window.removeEventListener("pointermove", this.onSplitDragPointerMove);
+    window.removeEventListener("pointerup", this.onSplitDragPointerUp);
+    window.removeEventListener("pointercancel", this.onSplitDragPointerUp);
+    this.splitDragPointerId = null;
     this.splitLineDragging = false;
   }
 
@@ -1396,15 +1472,22 @@ class HdrMergeApp extends LitElement {
     void this.renderPreviewIfPossible();
   }
 
-  private splitHandleLeftPercent(): number {
-    return this.splitPercent;
+  private splitHandleStyle(): string {
+    if (!this.currentCanvas) {
+      return `left:${this.splitPercent}%;`;
+    }
+
+    const canvasWidth = this.currentCanvas.clientWidth;
+    if (canvasWidth <= 0) {
+      return `left:${this.splitPercent}%;`;
+    }
+
+    const leftPx =
+      this.currentCanvas.offsetLeft + (canvasWidth * this.splitPercent) / 100;
+    return `left:${leftPx}px;`;
   }
 
   private onCanvasWheel(event: WheelEvent): void {
-    if (this.hasCompareSources()) {
-      return;
-    }
-
     if (!event.ctrlKey) {
       return;
     }
@@ -1585,8 +1668,8 @@ class HdrMergeApp extends LitElement {
     if (this.currentCanvas) {
       const currentContext = this.currentCanvas.getContext("2d");
       if (currentContext) {
-        this.currentCanvas.width = 1600;
-        this.currentCanvas.height = 900;
+        this.currentCanvas.width = 1280;
+        this.currentCanvas.height = 720;
         currentContext.clearRect(
           0,
           0,

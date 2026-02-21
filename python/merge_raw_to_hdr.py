@@ -82,7 +82,7 @@ def infer_exposures_from_brightness(images: List[np.ndarray]) -> np.ndarray:
     return normalized.astype(np.float32)
 
 
-def normalize_hdr_luminance(hdr_rgb: np.ndarray) -> np.ndarray:
+def normalize_hdr_luminance(hdr_rgb: np.ndarray, target_log_avg: float = 0.18) -> np.ndarray:
     hdr = np.clip(hdr_rgb.astype(np.float32), 0.0, None)
     luminance = (
         0.2126 * hdr[:, :, 0] + 0.7152 * hdr[:, :, 1] + 0.0722 * hdr[:, :, 2]
@@ -93,8 +93,22 @@ def normalize_hdr_luminance(hdr_rgb: np.ndarray) -> np.ndarray:
         return hdr
 
     log_avg = float(np.exp(np.mean(np.log(valid + 1e-6))))
-    scale = 0.18 / max(log_avg, 1e-6)
+    safe_target = float(np.clip(target_log_avg, 1e-3, 1.0))
+    scale = safe_target / max(log_avg, 1e-6)
     return hdr * scale
+
+
+def log_average_luminance(image_rgb: np.ndarray) -> float:
+    image = image_rgb.astype(np.float32)
+    if image.max() > 1.0:
+        image = image / 255.0
+
+    luminance = 0.2126 * image[:, :, 0] + 0.7152 * image[:, :, 1] + 0.0722 * image[:, :, 2]
+    valid = luminance[np.isfinite(luminance) & (luminance > 0)]
+    if valid.size == 0:
+        return 0.18
+
+    return float(np.exp(np.mean(np.log(valid + 1e-6))))
 
 
 def tonemap_preview_ldr(hdr_rgb: np.ndarray) -> np.ndarray:
@@ -110,16 +124,17 @@ def tonemap_preview_ldr(hdr_rgb: np.ndarray) -> np.ndarray:
 
 
 def get_base_index(images: List[np.ndarray], base_frame: str) -> int:
-    if base_frame == "middle":
-        return len(images) // 2
-
     means = [float(np.mean(img.astype(np.float32))) for img in images]
+    sorted_indices = np.argsort(np.asarray(means, dtype=np.float32))
+
+    if base_frame == "middle":
+        return int(sorted_indices[len(images) // 2])
     if base_frame == "darkest":
         return int(np.argmin(means))
     if base_frame == "brightest":
         return int(np.argmax(means))
 
-    return len(images) // 2
+    return int(sorted_indices[len(images) // 2])
 
 
 def align_images_mtb(images: List[np.ndarray]) -> List[np.ndarray]:
@@ -159,12 +174,17 @@ def merge_to_hdr(
         times = infer_exposures_from_brightness(aligned)
 
     base_index = get_base_index(aligned, base_frame)
-    base_time = max(float(times[base_index]), 1e-6)
-    times = times / base_time
+
+    base_targets = {
+        "darkest": 0.10,
+        "middle": 0.18,
+        "brightest": 0.30,
+    }
+    target_log_avg = base_targets.get(base_frame, 0.18)
 
     merge_debevec = cv2.createMergeDebevec()
     hdr_rgb = merge_debevec.process(aligned, times=times)
-    hdr_rgb = normalize_hdr_luminance(hdr_rgb)
+    hdr_rgb = normalize_hdr_luminance(hdr_rgb, target_log_avg=target_log_avg)
 
     hdr_bgr_for_cv = cv2.cvtColor(hdr_rgb, cv2.COLOR_RGB2BGR)
 
