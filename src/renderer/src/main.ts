@@ -381,11 +381,10 @@ class HdrMergeApp extends LitElement {
     .preview-canvas-wrap {
       position: relative;
       min-height: 0;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      width: 100%;
-      overflow: hidden;
+      display: block;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
     }
 
     .split-line-handle {
