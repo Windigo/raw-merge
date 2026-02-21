@@ -312,6 +312,7 @@ function createWindow() {
   const window = new BrowserWindow({
     width: 1200,
     height: 780,
+    fullscreen: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,

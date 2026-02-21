@@ -589,6 +589,11 @@ class HdrMergeApp extends LitElement {
     lastX: number;
     lastY: number;
   };
+  private pointerPanState?: {
+    pointerId: number;
+    lastX: number;
+    lastY: number;
+  };
 
   private async getApi() {
     const maxWaitMs = 1500;
@@ -1009,6 +1014,10 @@ class HdrMergeApp extends LitElement {
         <canvas
           id="currentCanvas"
           @wheel=${this.onCanvasWheel}
+          @pointerdown=${this.onCanvasPointerDown}
+          @pointermove=${this.onCanvasPointerMove}
+          @pointerup=${this.onCanvasPointerUp}
+          @pointercancel=${this.onCanvasPointerUp}
           @touchstart=${this.onCanvasTouchStart}
           @touchmove=${this.onCanvasTouchMove}
           @touchend=${this.onCanvasTouchEnd}
@@ -1488,22 +1497,91 @@ class HdrMergeApp extends LitElement {
   }
 
   private onCanvasWheel(event: WheelEvent): void {
-    if (!event.ctrlKey) {
-      return;
-    }
-
-    event.preventDefault();
     if (!this.currentCanvas) {
       return;
     }
 
     const rect = this.currentCanvas.getBoundingClientRect();
-    const focalX =
-      ((event.clientX - rect.left) * this.currentCanvas.width) / rect.width;
-    const focalY =
-      ((event.clientY - rect.top) * this.currentCanvas.height) / rect.height;
-    const zoomFactor = Math.exp(-event.deltaY * 0.0025);
-    this.applyZoomAtPoint(focalX, focalY, this.zoomScale * zoomFactor);
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+
+    if (event.ctrlKey) {
+      event.preventDefault();
+      const focalX =
+        ((event.clientX - rect.left) * this.currentCanvas.width) / rect.width;
+      const focalY =
+        ((event.clientY - rect.top) * this.currentCanvas.height) / rect.height;
+      const zoomFactor = Math.exp(-event.deltaY * 0.0025);
+      this.applyZoomAtPoint(focalX, focalY, this.zoomScale * zoomFactor);
+      return;
+    }
+
+    if (this.zoomScale <= 1) {
+      return;
+    }
+
+    event.preventDefault();
+    const scaleX = this.currentCanvas.width / rect.width;
+    const scaleY = this.currentCanvas.height / rect.height;
+    this.panX -= event.deltaX * scaleX;
+    this.panY -= event.deltaY * scaleY;
+    void this.renderPreviewIfPossible();
+  }
+
+  private onCanvasPointerDown(event: PointerEvent): void {
+    if (!this.currentCanvas || this.zoomScale <= 1) {
+      return;
+    }
+
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    const point = this.clientToCanvasPoint(event.clientX, event.clientY);
+    this.pointerPanState = {
+      pointerId: event.pointerId,
+      lastX: point.x,
+      lastY: point.y,
+    };
+    this.currentCanvas.setPointerCapture(event.pointerId);
+    this.currentCanvas.style.cursor = "grabbing";
+    event.preventDefault();
+  }
+
+  private onCanvasPointerMove(event: PointerEvent): void {
+    if (!this.currentCanvas || !this.pointerPanState) {
+      return;
+    }
+
+    if (this.pointerPanState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const point = this.clientToCanvasPoint(event.clientX, event.clientY);
+    this.panX += point.x - this.pointerPanState.lastX;
+    this.panY += point.y - this.pointerPanState.lastY;
+    this.pointerPanState = {
+      pointerId: event.pointerId,
+      lastX: point.x,
+      lastY: point.y,
+    };
+    void this.renderPreviewIfPossible();
+    event.preventDefault();
+  }
+
+  private onCanvasPointerUp(event: PointerEvent): void {
+    if (!this.currentCanvas || !this.pointerPanState) {
+      return;
+    }
+
+    if (this.pointerPanState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    this.pointerPanState = undefined;
+    this.currentCanvas.style.cursor = this.zoomScale > 1 ? "grab" : "default";
+    event.preventDefault();
   }
 
   private onCanvasTouchStart(event: TouchEvent): void {
@@ -1599,14 +1677,21 @@ class HdrMergeApp extends LitElement {
   }
 
   private touchToCanvasPoint(touch: Touch): { x: number; y: number } {
+    return this.clientToCanvasPoint(touch.clientX, touch.clientY);
+  }
+
+  private clientToCanvasPoint(clientX: number, clientY: number): {
+    x: number;
+    y: number;
+  } {
     if (!this.currentCanvas) {
       return { x: 0, y: 0 };
     }
 
     const rect = this.currentCanvas.getBoundingClientRect();
     return {
-      x: ((touch.clientX - rect.left) * this.currentCanvas.width) / rect.width,
-      y: ((touch.clientY - rect.top) * this.currentCanvas.height) / rect.height,
+      x: ((clientX - rect.left) * this.currentCanvas.width) / rect.width,
+      y: ((clientY - rect.top) * this.currentCanvas.height) / rect.height,
     };
   }
 
@@ -1645,6 +1730,7 @@ class HdrMergeApp extends LitElement {
     this.panY = 0;
     this.pinchState = undefined;
     this.panState = undefined;
+    this.pointerPanState = undefined;
     if (this.currentCanvas) {
       this.currentCanvas.style.cursor = "default";
     }
