@@ -1,0 +1,25 @@
+{
+    "name": "hdr-merge",
+    "version": "0.1.0",
+    "description": "Electron + Lit app to view and merge HDR images in current folder",
+    "main": "out/main/index.js",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "electron-vite dev",
+        "build": "electron-vite build",
+        "preview": "electron-vite preview",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "lit": "^3.2.1",
+        "parse-hdr": "^1.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.13.10",
+        "electron": "^34.3.0",
+        "electron-vite": "^3.1.0",
+        "typescript": "^5.8.2",
+        "vite": "^5.4.14"
+    }
+}
