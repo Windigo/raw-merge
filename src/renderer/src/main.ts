@@ -374,8 +374,28 @@ class HdrMergeApp extends LitElement {
 
     .preview-panel {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
       min-height: 0;
+    }
+
+    .split-controls {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .split-controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .split-controls input[type="range"] {
+      width: 100%;
+      cursor: pointer;
     }
 
     canvas {
@@ -488,6 +508,9 @@ class HdrMergeApp extends LitElement {
   private previousPreviewSettingsLabel = "";
 
   @state()
+  private splitPercent = 50;
+
+  @state()
   private singleViewTarget: "a" | "b" = "b";
 
   @state()
@@ -547,6 +570,10 @@ class HdrMergeApp extends LitElement {
     throw new Error(
       "Renderer bridge not available. Restart the app and ensure preload is loaded.",
     );
+  }
+
+  private hasCompareSources(): boolean {
+    return Boolean(this.previousPreviewPath && this.currentPreviewPath);
   }
 
   private folderPickerLabel(): string {
@@ -638,13 +665,35 @@ class HdrMergeApp extends LitElement {
 
         <section class="viewer">
           <div class="panel preview-panel">
-            <h2 class="title">Merged preview</h2>
+            <h2 class="title">
+              ${this.hasCompareSources() ? "A/B Split Preview" : "Merged preview"}
+            </h2>
             <p class="subtitle">
-              ${this.singleViewTarget === "a"
-                ? `A: ${this.previousPreviewSettingsLabel}`
-                : `B: ${this.previewSettingsLabel}`}
+              ${this.hasCompareSources()
+                ? `A: ${this.previousPreviewSettingsLabel} · B: ${this.previewSettingsLabel}`
+                : this.singleViewTarget === "a"
+                  ? `A: ${this.previousPreviewSettingsLabel}`
+                  : `B: ${this.previewSettingsLabel}`}
             </p>
             ${this.renderPreviewCanvas()}
+            ${this.hasCompareSources()
+              ? html`<div class="split-controls">
+                  <div class="split-controls-row">
+                    <span>A</span>
+                    <span>${Math.round(this.splitPercent)}%</span>
+                    <span>B</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="3"
+                    max="97"
+                    step="1"
+                    .value=${String(this.splitPercent)}
+                    @input=${this.onSplitPercentInput}
+                    aria-label="Split position"
+                  />
+                </div>`
+              : ""}
           </div>
 
           <div class="settings-grid">
@@ -1053,6 +1102,7 @@ class HdrMergeApp extends LitElement {
     this.previousPreviewSettingsLabel = "";
     this.currentPreviewPath = "";
     this.previousPreviewPath = "";
+    this.splitPercent = 50;
     this.disposeBitmaps();
     this.clearPreviewCanvases();
 
@@ -1208,6 +1258,19 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
+    const splitMode = this.hasCompareSources();
+
+    if (splitMode) {
+      if (!this.previousBitmap && this.previousPreviewPath) {
+        this.previousBitmap = await this.loadPreviewBitmap(
+          this.previousPreviewPath,
+        );
+      }
+      if (!this.currentBitmap && this.currentPreviewPath) {
+        this.currentBitmap = await this.loadPreviewBitmap(this.currentPreviewPath);
+      }
+    }
+
     const primaryPath =
       this.singleViewTarget === "a"
         ? this.previousPreviewPath
@@ -1215,7 +1278,7 @@ class HdrMergeApp extends LitElement {
     const primaryBitmap =
       this.singleViewTarget === "a" ? this.previousBitmap : this.currentBitmap;
 
-    if (!primaryBitmap && primaryPath) {
+    if (!splitMode && !primaryBitmap && primaryPath) {
       if (this.singleViewTarget === "a") {
         this.previousBitmap = await this.loadPreviewBitmap(primaryPath);
       } else {
@@ -1223,8 +1286,11 @@ class HdrMergeApp extends LitElement {
       }
     }
 
-    const displayBitmap =
-      this.singleViewTarget === "a" ? this.previousBitmap : this.currentBitmap;
+    const displayBitmap = splitMode
+      ? this.currentBitmap ?? this.previousBitmap
+      : this.singleViewTarget === "a"
+        ? this.previousBitmap
+        : this.currentBitmap;
 
     if (!displayBitmap) {
       return;
@@ -1247,7 +1313,72 @@ class HdrMergeApp extends LitElement {
       this.panY,
     );
 
+    if (splitMode && this.previousBitmap && this.currentBitmap) {
+      const splitX = Math.round((width * this.splitPercent) / 100);
+      context.drawImage(
+        this.previousBitmap,
+        0,
+        0,
+        splitX,
+        height,
+        0,
+        0,
+        splitX,
+        height,
+      );
+      context.drawImage(
+        this.currentBitmap,
+        splitX,
+        0,
+        width - splitX,
+        height,
+        splitX,
+        0,
+        width - splitX,
+        height,
+      );
+      context.restore();
+      this.drawSplitGuide(context, splitX, width, height);
+      return;
+    }
+
     context.drawImage(displayBitmap, 0, 0);
+    context.restore();
+  }
+
+  private onSplitPercentInput(event: Event): void {
+    const target = event.currentTarget as HTMLInputElement;
+    const value = Number(target.value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.splitPercent = Math.min(97, Math.max(3, value));
+    void this.renderPreviewIfPossible();
+  }
+
+  private drawSplitGuide(
+    context: CanvasRenderingContext2D,
+    splitX: number,
+    width: number,
+    height: number,
+  ): void {
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(splitX + 0.5, 0);
+    context.lineTo(splitX + 0.5, height);
+    context.stroke();
+
+    context.fillStyle = "rgba(255, 255, 255, 0.95)";
+    context.font = "bold 14px Inter, system-ui, sans-serif";
+    context.textBaseline = "top";
+    context.textAlign = "left";
+    context.fillText("A", 10, 10);
+    context.textAlign = "right";
+    context.fillText("B", width - 10, 10);
     context.restore();
   }
 
