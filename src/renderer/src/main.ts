@@ -334,13 +334,80 @@ class HdrMergeApp extends LitElement {
     }
 
     .curves-editor {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 152px;
       border: 1px solid #374151;
       border-radius: 6px;
       background: #030712;
       touch-action: none;
-      cursor: crosshair;
+    }
+
+    .curves-editor-wrap {
+      position: relative;
+      width: 100%;
+      height: 152px;
+    }
+
+    .curves-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      border-radius: 6px;
+    }
+
+    .curves-overlay-marker {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      transform: translate(-50%, -50%);
+    }
+
+    .curves-overlay-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      border: 3px solid #ef4444;
+      box-shadow: 0 0 0 2px #000000;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .curves-overlay-h,
+    .curves-overlay-v {
+      position: absolute;
+      background: #22c55e;
+      box-shadow: 0 0 0 1px #000000;
+    }
+
+    .curves-overlay-h {
+      left: -4px;
+      right: -4px;
+      top: 10px;
+      height: 2px;
+    }
+
+    .curves-overlay-v {
+      top: -4px;
+      bottom: -4px;
+      left: 10px;
+      width: 2px;
+    }
+
+    .curves-overlay-label {
+      position: absolute;
+      left: 16px;
+      top: -14px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #22c55e;
+      text-shadow:
+        -1px -1px 0 #000,
+        1px -1px 0 #000,
+        -1px 1px 0 #000,
+        1px 1px 0 #000;
+      white-space: nowrap;
     }
 
     .curves-grid-line {
@@ -367,6 +434,46 @@ class HdrMergeApp extends LitElement {
       stroke: #111827;
       stroke-width: 1.5;
       cursor: ns-resize;
+    }
+
+    .curves-point-active {
+      fill: #fde68a;
+      stroke: #f59e0b;
+      stroke-width: 2;
+    }
+
+    .curves-grab-indicator-cross-under {
+      stroke: #000000;
+      stroke-width: 5;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+      opacity: 1;
+    }
+
+    .curves-grab-indicator-cross {
+      stroke: #ef4444;
+      stroke-width: 3;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+      opacity: 1;
+    }
+
+    .curves-grab-indicator-label {
+      fill: #22c55e;
+      stroke: #000000;
+      stroke-width: 1;
+      paint-order: stroke;
+      font-size: 10px;
+      font-weight: 700;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .curves-debug {
+      font-size: 11px;
+      color: #86efac;
+      opacity: 0.95;
+      font-variant-numeric: tabular-nums;
     }
 
     .export-actions {
@@ -730,6 +837,9 @@ class HdrMergeApp extends LitElement {
   @state()
   private curveControlYs = [0, 0.25, 0.5, 0.75, 1];
 
+  @state()
+  private curveCursorMode: "idle" | "hot" | "dragging" = "idle";
+
   private currentPreviewPath = "";
   private previousPreviewPath = "";
 
@@ -948,44 +1058,72 @@ class HdrMergeApp extends LitElement {
                   Reset
                 </button>
               </div>
-              <svg
-                id="curveEditor"
-                class="curves-editor"
-                viewBox="0 0 220 140"
-                preserveAspectRatio="none"
-                @pointerdown=${this.onCurveEditorPointerDown}
-                aria-label="Curves editor"
-              >
-                ${[0.25, 0.5, 0.75].map(
-                  (t) => html`
-                    <line
-                      class="curves-grid-line"
-                      x1=${String(220 * t)}
-                      y1="0"
-                      x2=${String(220 * t)}
-                      y2="140"
-                    ></line>
-                    <line
-                      class="curves-grid-line"
-                      x1="0"
-                      y1=${String(140 * t)}
-                      x2="220"
-                      y2=${String(140 * t)}
-                    ></line>
-                  `,
-                )}
-                <path class="curves-diagonal" d="M 0 140 L 220 0"></path>
-                <path class="curves-path" d=${this.curvePathD()}></path>
-                ${this.curveControlXsCurrent.map((x, index) => {
-                  const y = this.curveControlYs[index] ?? x;
-                  return html`<circle
-                    class="curves-point"
-                    cx=${String(x * 220)}
-                    cy=${String((1 - y) * 140)}
-                    r="6"
-                  ></circle>`;
-                })}
-              </svg>
+              <div class="curves-editor-wrap">
+                <svg
+                  id="curveEditor"
+                  class="curves-editor"
+                  viewBox="0 0 220 140"
+                  preserveAspectRatio="none"
+                  @pointerdown=${this.onCurveEditorPointerDown}
+                  @pointermove=${this.onCurveEditorPointerMove}
+                  @pointerleave=${this.onCurveEditorPointerLeave}
+                  style=${`cursor:${this.curveCursorStyle()};`}
+                  aria-label="Curves editor"
+                >
+                  ${[0.25, 0.5, 0.75].map(
+                    (t) => html`
+                      <line
+                        class="curves-grid-line"
+                        x1=${String(220 * t)}
+                        y1="0"
+                        x2=${String(220 * t)}
+                        y2="140"
+                      ></line>
+                      <line
+                        class="curves-grid-line"
+                        x1="0"
+                        y1=${String(140 * t)}
+                        x2="220"
+                        y2=${String(140 * t)}
+                      ></line>
+                    `,
+                  )}
+                  <path class="curves-diagonal" d="M 0 140 L 220 0"></path>
+                  <path class="curves-path" d=${this.curvePathD()}></path>
+                  ${this.curveControlXsCurrent.map((x, index) => {
+                    const y = this.curveControlYs[index] ?? x;
+                    const pointClass =
+                      this.curveDragIndex === index
+                        ? "curves-point curves-point-active"
+                        : "curves-point";
+                    return html`<circle
+                      class=${pointClass}
+                      cx=${String(x * 220)}
+                      cy=${String((1 - y) * 140)}
+                      r="6"
+                    ></circle>`;
+                  })}
+                </svg>
+                <div class="curves-overlay">
+                  ${this.curveOverlayPoints().map(
+                    (point) => html`<div
+                      class="curves-overlay-marker"
+                      style=${`left:${(point.x * 100).toFixed(3)}%;top:${((1 - point.y) * 100).toFixed(3)}%;`}
+                    >
+                      <span class="curves-overlay-ring"></span>
+                      <span class="curves-overlay-h"></span>
+                      <span class="curves-overlay-v"></span>
+                      <span class="curves-overlay-label">${point.id}</span>
+                    </div>`,
+                  )}
+                </div>
+              </div>
+              <div class="curves-debug">
+                Markers: ${this.curveOverlayPoints().length}
+                ${this.curveOverlayPoints().length > 0
+                  ? html` · active points move with drag`
+                  : ""}
+              </div>
             </section>
           </section>
 
@@ -1435,6 +1573,7 @@ class HdrMergeApp extends LitElement {
     this.previousPreviewSettingsLabel = "";
     this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
     this.curveControlYs = [...HdrMergeApp.curveControlXs];
+    this.curveCursorMode = "idle";
     this.exportJpegTarget = "b";
     this.currentPreviewPath = "";
     this.previousPreviewPath = "";
@@ -2337,11 +2476,41 @@ class HdrMergeApp extends LitElement {
     const { x: normalizedX, y: normalizedY } = normalized;
     this.curveDragIndex = this.pickOrInsertCurvePoint(normalizedX, normalizedY);
     this.curveDragPointerId = event.pointerId;
+    this.curveCursorMode = "dragging";
     window.addEventListener("pointermove", this.onCurveDragPointerMove);
     window.addEventListener("pointerup", this.onCurveDragPointerUp);
     window.addEventListener("pointercancel", this.onCurveDragPointerUp);
     this.updateCurvePointFromClientPosition(event.clientX, event.clientY);
     event.preventDefault();
+  }
+
+  private onCurveEditorPointerMove(event: PointerEvent): void {
+    if (this.curveCursorMode === "dragging") {
+      return;
+    }
+
+    const svg = this.renderRoot.querySelector("#curveEditor") as
+      | SVGSVGElement
+      | null;
+    if (!svg) {
+      return;
+    }
+
+    const normalized = this.clientToCurveNormalized(svg, event.clientX, event.clientY);
+    if (!normalized) {
+      this.curveCursorMode = "idle";
+      return;
+    }
+
+    this.curveCursorMode = this.isNearCurveGrabTarget(normalized.x, normalized.y)
+      ? "hot"
+      : "idle";
+  }
+
+  private onCurveEditorPointerLeave(): void {
+    if (this.curveCursorMode !== "dragging") {
+      this.curveCursorMode = "idle";
+    }
   }
 
   private onCurveDragPointerMove = (event: PointerEvent): void => {
@@ -2375,6 +2544,7 @@ class HdrMergeApp extends LitElement {
     window.removeEventListener("pointercancel", this.onCurveDragPointerUp);
     this.curveDragIndex = null;
     this.curveDragPointerId = null;
+    this.curveCursorMode = "hot";
   }
 
   private updateCurvePointFromClientPosition(
@@ -2445,6 +2615,82 @@ class HdrMergeApp extends LitElement {
     this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
     this.curveControlYs = [...HdrMergeApp.curveControlXs];
     void this.renderPreviewIfPossible();
+  }
+
+  private curveOverlayPoints(): Array<{ id: number; x: number; y: number }> {
+    if (this.curveControlXsCurrent.length <= 2) {
+      return [];
+    }
+
+    return this.curveControlXsCurrent
+      .slice(1, -1)
+      .map((x, offset) => {
+        const index = offset + 1;
+        return {
+          id: index,
+          x,
+          y: this.curveControlYs[index] ?? x,
+        };
+      });
+  }
+
+  private curveCursorStyle(): string {
+    if (this.curveCursorMode === "dragging") {
+      return "grabbing";
+    }
+
+    if (this.curveCursorMode === "hot") {
+      return "grab";
+    }
+
+    return "crosshair";
+  }
+
+  private isNearCurveGrabTarget(x: number, y: number): boolean {
+    const nearPoint = this.curveControlXsCurrent.some((pointX, index) => {
+      const pointY = this.curveControlYs[index] ?? pointX;
+      return Math.hypot(pointX - x, pointY - y) <= 0.07;
+    });
+
+    if (nearPoint) {
+      return true;
+    }
+
+    for (let index = 0; index < this.curveControlXsCurrent.length - 1; index += 1) {
+      const x0 = this.curveControlXsCurrent[index];
+      const y0 = this.curveControlYs[index] ?? x0;
+      const x1 = this.curveControlXsCurrent[index + 1];
+      const y1 = this.curveControlYs[index + 1] ?? x1;
+      const distance = this.distanceToLineSegment(x, y, x0, y0, x1, y1);
+      if (distance <= 0.045) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private distanceToLineSegment(
+    px: number,
+    py: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+  ): number {
+    const vx = bx - ax;
+    const vy = by - ay;
+    const wx = px - ax;
+    const wy = py - ay;
+    const lenSq = vx * vx + vy * vy;
+    if (lenSq <= 1e-12) {
+      return Math.hypot(px - ax, py - ay);
+    }
+
+    const t = Math.max(0, Math.min(1, (wx * vx + wy * vy) / lenSq));
+    const cx = ax + t * vx;
+    const cy = ay + t * vy;
+    return Math.hypot(px - cx, py - cy);
   }
 
   private pickOrInsertCurvePoint(normalizedX: number, normalizedY: number): number {
