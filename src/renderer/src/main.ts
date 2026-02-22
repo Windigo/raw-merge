@@ -266,6 +266,67 @@ class HdrMergeApp extends LitElement {
       white-space: nowrap;
     }
 
+    .preview-adjustments {
+      border: 1px solid #374151;
+      border-radius: 10px;
+      padding: 10px;
+      background: #111827;
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .preview-adjustment-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .preview-adjustment-label {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .preview-adjustment-value {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      opacity: 0.9;
+      text-align: right;
+      min-width: 56px;
+    }
+
+    .preview-adjustment-slider {
+      width: 100%;
+      accent-color: #e9800a;
+      grid-column: 1 / -1;
+    }
+
+    .export-actions {
+      margin-top: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .export-jpeg-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .export-target-toggle {
+      min-width: 96px;
+    }
+
+    .status-note {
+      margin-top: 8px;
+      font-size: 12px;
+      opacity: 0.85;
+      word-break: break-word;
+    }
+
     .settings-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -423,7 +484,10 @@ class HdrMergeApp extends LitElement {
       background: rgba(55, 65, 81, 0.42);
       border: 1.5px solid rgba(229, 231, 235, 0.95);
       color: rgba(243, 244, 246, 1);
-      font: 700 16px Inter, system-ui, sans-serif;
+      font:
+        700 16px Inter,
+        system-ui,
+        sans-serif;
       line-height: 1;
       pointer-events: none;
       z-index: 3;
@@ -573,6 +637,27 @@ class HdrMergeApp extends LitElement {
   @state()
   private thumbnailLoading = new Set<string>();
 
+  @state()
+  private previewExposureEv = 0;
+
+  @state()
+  private previewGamma = 1;
+
+  @state()
+  private previewContrast = 0;
+
+  @state()
+  private previewWarmth = 0;
+
+  @state()
+  private previewSaturation = 0;
+
+  @state()
+  private exportStatusMessage = "";
+
+  @state()
+  private exportJpegTarget: "a" | "b" = "b";
+
   private currentPreviewPath = "";
   private previousPreviewPath = "";
 
@@ -681,10 +766,138 @@ class HdrMergeApp extends LitElement {
             ${this.renderFolderTree()}
           </section>
 
+          ${this.folderPath
+            ? html`<div class="export-actions">
+                <button
+                  @click=${this.onCleanupLegacyPreviews}
+                  ?disabled=${this.isBusy}
+                >
+                  Cleanup old preview files…
+                </button>
+              </div>`
+            : ""}
+
+          <section class="preview-adjustments">
+            <h3 class="settings-title">Preview Adjustments</h3>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Exposure</span>
+              <span class="preview-adjustment-value"
+                >${this.formatPreviewExposureEv(this.previewExposureEv)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-4"
+                max="4"
+                step="0.1"
+                .value=${String(this.previewExposureEv)}
+                @input=${this.onPreviewExposureInput}
+                aria-label="Preview exposure"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Gamma</span>
+              <span class="preview-adjustment-value"
+                >${this.previewGamma.toFixed(2)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="0.5"
+                max="3"
+                step="0.05"
+                .value=${String(this.previewGamma)}
+                @input=${this.onPreviewGammaInput}
+                aria-label="Preview gamma"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Contrast</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewContrast)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewContrast)}
+                @input=${this.onPreviewContrastInput}
+                aria-label="Preview contrast"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Warmth</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewWarmth)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewWarmth)}
+                @input=${this.onPreviewWarmthInput}
+                aria-label="Preview warmth"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Saturation</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewSaturation)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewSaturation)}
+                @input=${this.onPreviewSaturationInput}
+                aria-label="Preview saturation"
+              />
+            </label>
+          </section>
+
           ${this.mergedOutputPath
             ? html`<p class="subtitle">
                 Saved EXR: ${this.fileName(this.mergedOutputPath)}
               </p>`
+            : ""}
+          ${this.mergedOutputPath
+            ? html`<div class="export-actions">
+                <button @click=${this.onSaveMergedAs} ?disabled=${this.isBusy}>
+                  Save merged EXR as…
+                </button>
+                <div class="export-jpeg-row">
+                  <button
+                    @click=${this.onExportProcessedJpeg}
+                    ?disabled=${this.isBusy || !this.hasPreviewToExport()}
+                  >
+                    Export processed JPEG…
+                  </button>
+                  <select
+                    class="export-target-toggle"
+                    .value=${this.exportJpegTarget}
+                    @change=${this.onExportJpegTargetChange}
+                    ?disabled=${this.isBusy ||
+                    (!this.hasExportSource("a") && !this.hasExportSource("b"))}
+                    aria-label="JPEG export target"
+                  >
+                    <option value="a" ?disabled=${!this.hasExportSource("a")}>
+                      A
+                    </option>
+                    <option value="b" ?disabled=${!this.hasExportSource("b")}>
+                      B
+                    </option>
+                  </select>
+                </div>
+              </div>`
+            : ""}
+          ${this.exportStatusMessage
+            ? html`<p class="status-note">${this.exportStatusMessage}</p>`
             : ""}
           ${this.error ? html`<p class="error">${this.error}</p>` : ""}
         </section>
@@ -828,7 +1041,9 @@ class HdrMergeApp extends LitElement {
 
     const tree = this.buildTreeNodes();
 
-    return html`<ul class="file-tree">${this.renderTreeNodes(tree)}</ul>`;
+    return html`<ul class="file-tree">
+      ${this.renderTreeNodes(tree)}
+    </ul>`;
   }
 
   private renderTreeNodes(nodes: TreeNode[]): TemplateResult[] {
@@ -843,7 +1058,9 @@ class HdrMergeApp extends LitElement {
       return html`<li class="tree-folder">
         <details open>
           <summary>${node.name}</summary>
-          <ul class="tree-children">${this.renderTreeNodes(children)}</ul>
+          <ul class="tree-children">
+            ${this.renderTreeNodes(children)}
+          </ul>
         </details>
       </li>`;
     });
@@ -957,40 +1174,40 @@ class HdrMergeApp extends LitElement {
 
   private renderPreviewCanvas() {
     return html`<div class="preview-canvas-wrap">
-        <canvas
-          id="currentCanvas"
-          @wheel=${this.onCanvasWheel}
-          @pointerdown=${this.onCanvasPointerDown}
-          @pointermove=${this.onCanvasPointerMove}
-          @pointerup=${this.onCanvasPointerUp}
-          @pointercancel=${this.onCanvasPointerUp}
-          @touchstart=${this.onCanvasTouchStart}
-          @touchmove=${this.onCanvasTouchMove}
-          @touchend=${this.onCanvasTouchEnd}
-          @touchcancel=${this.onCanvasTouchEnd}
-        ></canvas>
-        ${this.hasCompareSources()
-          ? html`
-              <div
-                class="split-side-label split-side-label-left"
-                style=${this.splitLabelStyle()}
-              >
-                A
-              </div>
-              <div
-                class="split-side-label split-side-label-right"
-                style=${this.splitLabelStyle()}
-              >
-                B
-              </div>
-              <div
-                class="split-line-handle"
-                style=${this.splitHandleStyle()}
-                @pointerdown=${this.onSplitHandlePointerDown}
-              ></div>
-            `
-          : ""}
-      </div>`;
+      <canvas
+        id="currentCanvas"
+        @wheel=${this.onCanvasWheel}
+        @pointerdown=${this.onCanvasPointerDown}
+        @pointermove=${this.onCanvasPointerMove}
+        @pointerup=${this.onCanvasPointerUp}
+        @pointercancel=${this.onCanvasPointerUp}
+        @touchstart=${this.onCanvasTouchStart}
+        @touchmove=${this.onCanvasTouchMove}
+        @touchend=${this.onCanvasTouchEnd}
+        @touchcancel=${this.onCanvasTouchEnd}
+      ></canvas>
+      ${this.hasCompareSources()
+        ? html`
+            <div
+              class="split-side-label split-side-label-left"
+              style=${this.splitLabelStyle()}
+            >
+              A
+            </div>
+            <div
+              class="split-side-label split-side-label-right"
+              style=${this.splitLabelStyle()}
+            >
+              B
+            </div>
+            <div
+              class="split-line-handle"
+              style=${this.splitHandleStyle()}
+              @pointerdown=${this.onSplitHandlePointerDown}
+            ></div>
+          `
+        : ""}
+    </div>`;
   }
 
   protected updated(): void {
@@ -1085,8 +1302,10 @@ class HdrMergeApp extends LitElement {
     this.thumbnailExposureSeconds = {};
     this.thumbnailLoading = new Set(result.files);
     this.mergedOutputPath = "";
+    this.exportStatusMessage = "";
     this.previewSettingsLabel = "";
     this.previousPreviewSettingsLabel = "";
+    this.exportJpegTarget = "b";
     this.currentPreviewPath = "";
     this.previousPreviewPath = "";
     this.dynamicRangeStopsA = undefined;
@@ -1135,7 +1354,10 @@ class HdrMergeApp extends LitElement {
             [filePath]: lightness,
           };
         }
-        if (typeof exposureSeconds === "number" && Number.isFinite(exposureSeconds)) {
+        if (
+          typeof exposureSeconds === "number" &&
+          Number.isFinite(exposureSeconds)
+        ) {
           this.thumbnailExposureSeconds = {
             ...this.thumbnailExposureSeconds,
             [filePath]: exposureSeconds,
@@ -1195,7 +1417,10 @@ class HdrMergeApp extends LitElement {
         return undefined;
       }
 
-      return Math.max(0, Math.min(100, (luminanceSum / pixelCount / 255) * 100));
+      return Math.max(
+        0,
+        Math.min(100, (luminanceSum / pixelCount / 255) * 100),
+      );
     } catch {
       return undefined;
     }
@@ -1243,6 +1468,7 @@ class HdrMergeApp extends LitElement {
       }
 
       this.singleViewTarget = target;
+      this.exportJpegTarget = target;
       this.resetZoomState();
 
       await this.updateComplete;
@@ -1298,7 +1524,9 @@ class HdrMergeApp extends LitElement {
 
     const base = this.medianExposureSeconds();
     const evOffset =
-      typeof base === "number" && base > 0 ? Math.log2(seconds / base) : undefined;
+      typeof base === "number" && base > 0
+        ? Math.log2(seconds / base)
+        : undefined;
     const formattedExposure = this.formatShutter(seconds);
     const formattedOffset =
       typeof evOffset === "number" && Number.isFinite(evOffset)
@@ -1419,11 +1647,7 @@ class HdrMergeApp extends LitElement {
         this.panX,
         this.panY,
       );
-      context.drawImage(
-        this.previousBitmap,
-        0,
-        0,
-      );
+      context.drawImage(this.previousBitmap, 0, 0);
       context.restore();
 
       context.save();
@@ -1438,13 +1662,11 @@ class HdrMergeApp extends LitElement {
         this.panX,
         this.panY,
       );
-      context.drawImage(
-        this.currentBitmap,
-        0,
-        0,
-      );
+      context.drawImage(this.currentBitmap, 0, 0);
       context.restore();
       this.drawSplitGuide(context, splitX, width, height);
+
+      this.applyPreviewToneMapping(context, width, height);
       return;
     }
 
@@ -1460,6 +1682,82 @@ class HdrMergeApp extends LitElement {
     );
     context.drawImage(displayBitmap, 0, 0);
     context.restore();
+
+    this.applyPreviewToneMapping(context, width, height);
+  }
+
+  private applyPreviewToneMapping(
+    context: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+  ): void {
+    const exposureScale = Math.pow(2, this.previewExposureEv);
+    const gamma = this.previewGamma;
+    const contrast = this.previewContrast / 100;
+    const warmth = this.previewWarmth / 100;
+    const saturation = this.previewSaturation / 100;
+
+    if (Math.abs(exposureScale - 1) < 1e-6 && Math.abs(gamma - 1) < 1e-6) {
+      if (
+        Math.abs(contrast) < 1e-6 &&
+        Math.abs(warmth) < 1e-6 &&
+        Math.abs(saturation) < 1e-6
+      ) {
+        return;
+      }
+    }
+
+    const imageData = context.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const gammaPower = 1 / Math.max(0.01, gamma);
+    const contrastScale = Math.max(0, 1 + contrast);
+    const warmthRedGain = 1 + warmth * 0.22;
+    const warmthBlueGain = 1 - warmth * 0.22;
+    const saturationScale = Math.max(0, 1 + saturation);
+    const lut = new Uint8ClampedArray(256);
+
+    for (let index = 0; index < 256; index += 1) {
+      const normalized = index / 255;
+      const exposed = Math.min(1, Math.max(0, normalized * exposureScale));
+      const contrastAdjusted = (exposed - 0.5) * contrastScale + 0.5;
+      const clampedContrast = Math.min(1, Math.max(0, contrastAdjusted));
+      const gammaAdjusted = Math.pow(clampedContrast, gammaPower);
+      lut[index] = Math.min(255, Math.max(0, Math.round(gammaAdjusted * 255)));
+    }
+
+    for (let index = 0; index < data.length; index += 4) {
+      const mappedRed = lut[data[index]];
+      const mappedGreen = lut[data[index + 1]];
+      const mappedBlue = lut[data[index + 2]];
+
+      const warmedRed = Math.min(255, Math.max(0, mappedRed * warmthRedGain));
+      const warmedBlue = Math.min(
+        255,
+        Math.max(0, mappedBlue * warmthBlueGain),
+      );
+
+      const luminance =
+        0.2126 * warmedRed + 0.7152 * mappedGreen + 0.0722 * warmedBlue;
+
+      const saturatedRed = Math.min(
+        255,
+        Math.max(0, luminance + (warmedRed - luminance) * saturationScale),
+      );
+      const saturatedGreen = Math.min(
+        255,
+        Math.max(0, luminance + (mappedGreen - luminance) * saturationScale),
+      );
+      const saturatedBlue = Math.min(
+        255,
+        Math.max(0, luminance + (warmedBlue - luminance) * saturationScale),
+      );
+
+      data[index] = Math.round(saturatedRed);
+      data[index + 1] = Math.round(saturatedGreen);
+      data[index + 2] = Math.round(saturatedBlue);
+    }
+
+    context.putImageData(imageData, 0, 0);
   }
 
   private drawSplitGuide(
@@ -1515,7 +1813,10 @@ class HdrMergeApp extends LitElement {
   }
 
   private onSplitDragPointerMove = (event: PointerEvent): void => {
-    if (!this.splitLineDragging || this.splitDragPointerId !== event.pointerId) {
+    if (
+      !this.splitLineDragging ||
+      this.splitDragPointerId !== event.pointerId
+    ) {
       return;
     }
 
@@ -1524,7 +1825,10 @@ class HdrMergeApp extends LitElement {
   };
 
   private onSplitDragPointerUp = (event: PointerEvent): void => {
-    if (!this.splitLineDragging || this.splitDragPointerId !== event.pointerId) {
+    if (
+      !this.splitLineDragging ||
+      this.splitDragPointerId !== event.pointerId
+    ) {
       return;
     }
 
@@ -1758,7 +2062,10 @@ class HdrMergeApp extends LitElement {
     return this.clientToCanvasPoint(touch.clientX, touch.clientY);
   }
 
-  private clientToCanvasPoint(clientX: number, clientY: number): {
+  private clientToCanvasPoint(
+    clientX: number,
+    clientY: number,
+  ): {
     x: number;
     y: number;
   } {
@@ -1812,6 +2119,243 @@ class HdrMergeApp extends LitElement {
     if (this.currentCanvas) {
       this.currentCanvas.style.cursor = "default";
     }
+  }
+
+  private onPreviewExposureInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewExposureEv = Math.min(4, Math.max(-4, value));
+    void this.renderPreviewIfPossible();
+  }
+
+  private onPreviewGammaInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewGamma = Math.min(3, Math.max(0.5, value));
+    void this.renderPreviewIfPossible();
+  }
+
+  private onPreviewContrastInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewContrast = Math.min(100, Math.max(-100, value));
+    void this.renderPreviewIfPossible();
+  }
+
+  private onPreviewWarmthInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewWarmth = Math.min(100, Math.max(-100, value));
+    void this.renderPreviewIfPossible();
+  }
+
+  private onPreviewSaturationInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewSaturation = Math.min(100, Math.max(-100, value));
+    void this.renderPreviewIfPossible();
+  }
+
+  private hasPreviewToExport(): boolean {
+    return this.hasExportSource(this.exportJpegTarget);
+  }
+
+  private hasExportSource(target: "a" | "b"): boolean {
+    if (target === "a") {
+      return Boolean(this.previousBitmap || this.previousPreviewPath);
+    }
+
+    return Boolean(this.currentBitmap || this.currentPreviewPath);
+  }
+
+  private onExportJpegTargetChange(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    if (value === "a" || value === "b") {
+      this.exportJpegTarget = value;
+    }
+  }
+
+  private async onSaveMergedAs(): Promise<void> {
+    if (!this.mergedOutputPath) {
+      return;
+    }
+
+    this.error = "";
+    this.exportStatusMessage = "";
+    this.isBusy = true;
+
+    try {
+      const result = await (
+        await this.getApi()
+      ).saveMergedAs(this.mergedOutputPath);
+      if (!result) {
+        return;
+      }
+
+      this.exportStatusMessage = `Saved EXR copy: ${this.fileName(result.savedPath)}`;
+    } catch (error) {
+      this.error =
+        error instanceof Error ? error.message : "Could not save EXR copy.";
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  private async onExportProcessedJpeg(): Promise<void> {
+    if (!this.hasPreviewToExport()) {
+      return;
+    }
+
+    this.error = "";
+    this.exportStatusMessage = "";
+    this.isBusy = true;
+
+    try {
+      const bitmap = await this.getExportBitmap(this.exportJpegTarget);
+      if (!bitmap) {
+        throw new Error(
+          `No ${this.exportJpegTarget.toUpperCase()} preview available to export.`,
+        );
+      }
+
+      const jpegBytes = await this.bitmapToProcessedJpegBytes(bitmap, 0.92);
+      const stem = this.deriveProcessedJpegStem(this.exportJpegTarget);
+      const result = await (
+        await this.getApi()
+      ).exportPreviewJpeg(stem, jpegBytes);
+      if (!result) {
+        return;
+      }
+
+      this.exportStatusMessage = `Saved JPEG (${this.exportJpegTarget.toUpperCase()}): ${this.fileName(result.savedPath)}`;
+    } catch (error) {
+      this.error =
+        error instanceof Error
+          ? error.message
+          : "Could not export processed JPEG.";
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  private async getExportBitmap(
+    target: "a" | "b",
+  ): Promise<ImageBitmap | undefined> {
+    if (target === "a") {
+      if (!this.previousBitmap && this.previousPreviewPath) {
+        this.previousBitmap = await this.loadPreviewBitmap(
+          this.previousPreviewPath,
+        );
+      }
+      return this.previousBitmap;
+    }
+
+    if (!this.currentBitmap && this.currentPreviewPath) {
+      this.currentBitmap = await this.loadPreviewBitmap(
+        this.currentPreviewPath,
+      );
+    }
+    return this.currentBitmap;
+  }
+
+  private async onCleanupLegacyPreviews(): Promise<void> {
+    if (!this.folderPath) {
+      return;
+    }
+
+    this.error = "";
+    this.exportStatusMessage = "";
+    this.isBusy = true;
+
+    try {
+      const result = await (
+        await this.getApi()
+      ).cleanupLegacyPreviews(this.folderPath);
+      this.exportStatusMessage =
+        result.deletedCount > 0
+          ? `Deleted ${result.deletedCount} old preview file${result.deletedCount === 1 ? "" : "s"}.`
+          : "No old preview files found.";
+    } catch (error) {
+      this.error =
+        error instanceof Error
+          ? error.message
+          : "Could not clean up old preview files.";
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  private deriveProcessedJpegStem(target: "a" | "b"): string {
+    if (!this.mergedOutputPath) {
+      return `processed-preview-${target}`;
+    }
+
+    const base = this.fileName(this.mergedOutputPath).replace(/\.[^.]+$/, "");
+    return `${base}-processed-${target}`;
+  }
+
+  private async bitmapToProcessedJpegBytes(
+    bitmap: ImageBitmap,
+    quality: number,
+  ): Promise<Uint8Array> {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      throw new Error("Failed to prepare export canvas.");
+    }
+
+    context.drawImage(bitmap, 0, 0);
+    this.applyPreviewToneMapping(context, canvas.width, canvas.height);
+    return this.canvasToJpegBytes(canvas, quality);
+  }
+
+  private async canvasToJpegBytes(
+    canvas: HTMLCanvasElement,
+    quality: number,
+  ): Promise<Uint8Array> {
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (value) => {
+          if (value) {
+            resolve(value);
+            return;
+          }
+          reject(new Error("Failed to encode preview as JPEG."));
+        },
+        "image/jpeg",
+        quality,
+      );
+    });
+
+    const buffer = await blob.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+
+  private formatPreviewExposureEv(value: number): string {
+    const sign = value >= 0 ? "+" : "";
+    return `${sign}${value.toFixed(1)} EV`;
+  }
+
+  private formatSignedPercent(value: number): string {
+    const sign = value >= 0 ? "+" : "";
+    return `${sign}${Math.round(value)}%`;
   }
 
   private disposeBitmaps(): void {

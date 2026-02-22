@@ -112,6 +112,18 @@ type SuggestOptions = {
   maxGapSeconds?: number;
 };
 
+type SaveMergedResult = {
+  savedPath: string;
+};
+
+type ExportJpegResult = {
+  savedPath: string;
+};
+
+type CleanupLegacyPreviewsResult = {
+  deletedCount: number;
+};
+
 function getPythonExecutable(): string {
   if (process.env.HDR_MERGE_PYTHON) {
     return process.env.HDR_MERGE_PYTHON;
@@ -228,7 +240,9 @@ async function getRawExposure(filePath: string): Promise<number | null> {
             : null,
         );
       } catch {
-        reject(new Error("Exposure read completed but returned invalid output."));
+        reject(
+          new Error("Exposure read completed but returned invalid output."),
+        );
       }
     });
   });
@@ -299,12 +313,15 @@ async function mergeRawImagesToHdr(
   );
   const outputFolder = path.dirname(orderedPaths[0]);
   const firstName = path.parse(path.basename(orderedPaths[0])).name;
-  const lastName = path.parse(path.basename(orderedPaths[orderedPaths.length - 1]))
-    .name;
-  const timePart = new Date().toTimeString().slice(0, 8);
-  const baseName = `merge_${firstName}-${lastName}-${timePart}`;
+  const lastName = path.parse(
+    path.basename(orderedPaths[orderedPaths.length - 1]),
+  ).name;
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replaceAll("-", "");
+  const timePart = now.toTimeString().slice(0, 8).replaceAll(":", "");
+  const baseName = `merge_${firstName}-${lastName}-${datePart}-${timePart}`;
   const outputPath = path.join(outputFolder, `${baseName}.exr`);
-  const previewPath = path.join(outputFolder, `${baseName}-preview.png`);
+  const previewPath = path.join(outputFolder, "hdr-merge-preview.png");
   const pythonExecutable = getPythonExecutable();
   const scriptPath = getMergeScriptPath();
 
@@ -362,6 +379,87 @@ async function mergeRawImagesToHdr(
       }
     });
   });
+}
+
+async function saveMergedFileAs(
+  window: BrowserWindow,
+  sourcePath: string,
+): Promise<SaveMergedResult | null> {
+  const defaultFileName = path.basename(sourcePath || "merged.exr");
+  const defaultPath = path.join(
+    path.dirname(sourcePath || getCurrentFolder()),
+    defaultFileName,
+  );
+
+  const result = await dialog.showSaveDialog(window, {
+    defaultPath,
+    filters: [
+      { name: "OpenEXR", extensions: ["exr"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+
+  await fs.copyFile(sourcePath, result.filePath);
+  return { savedPath: result.filePath };
+}
+
+async function exportJpegBytes(
+  window: BrowserWindow,
+  fileNameStem: string,
+  jpegBytes: Uint8Array,
+): Promise<ExportJpegResult | null> {
+  const safeStem = (fileNameStem || "processed-preview")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .trim();
+  const suggestedName = `${safeStem || "processed-preview"}.jpg`;
+  const result = await dialog.showSaveDialog(window, {
+    defaultPath: path.join(getCurrentFolder(), suggestedName),
+    filters: [
+      { name: "JPEG", extensions: ["jpg", "jpeg"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+
+  const outputPath =
+    result.filePath.toLowerCase().endsWith(".jpg") ||
+    result.filePath.toLowerCase().endsWith(".jpeg")
+      ? result.filePath
+      : `${result.filePath}.jpg`;
+
+  await fs.writeFile(outputPath, Buffer.from(jpegBytes));
+  return { savedPath: outputPath };
+}
+
+async function cleanupLegacyPreviewFiles(
+  folderPath: string,
+): Promise<CleanupLegacyPreviewsResult> {
+  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+  const legacyPreviewPattern = /^merge_.*-preview\.(png|jpg|jpeg)$/i;
+  let deletedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    if (!legacyPreviewPattern.test(entry.name)) {
+      continue;
+    }
+
+    const filePath = path.join(folderPath, entry.name);
+    await fs.unlink(filePath);
+    deletedCount += 1;
+  }
+
+  return { deletedCount };
 }
 
 function createWindow() {
@@ -423,6 +521,60 @@ app.whenReady().then(() => {
     "hdr:mergeRawToHdr",
     async (_event, filePaths: string[], options?: MergeOptions) =>
       mergeRawImagesToHdr(filePaths, options),
+  );
+  ipcMain.handle(
+    "hdr:saveMergedAs",
+    async (event, sourcePath: string): Promise<SaveMergedResult | null> => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) {
+        return null;
+      }
+
+      if (!sourcePath) {
+        throw new Error("No merged file path provided.");
+      }
+
+      await fs.access(sourcePath);
+      return saveMergedFileAs(window, sourcePath);
+    },
+  );
+  ipcMain.handle(
+    "hdr:exportPreviewJpeg",
+    async (
+      event,
+      fileNameStem: string,
+      jpegBytes: Uint8Array,
+    ): Promise<ExportJpegResult | null> => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) {
+        return null;
+      }
+
+      if (!(jpegBytes instanceof Uint8Array) || jpegBytes.byteLength === 0) {
+        throw new Error("No JPEG data provided.");
+      }
+
+      return exportJpegBytes(window, fileNameStem, jpegBytes);
+    },
+  );
+  ipcMain.handle(
+    "hdr:cleanupLegacyPreviews",
+    async (
+      _event,
+      folderPath: string,
+    ): Promise<CleanupLegacyPreviewsResult> => {
+      if (!folderPath) {
+        throw new Error("No folder provided for preview cleanup.");
+      }
+
+      const resolvedFolder = path.resolve(folderPath);
+      const stat = await fs.stat(resolvedFolder);
+      if (!stat.isDirectory()) {
+        throw new Error("Preview cleanup path is not a directory.");
+      }
+
+      return cleanupLegacyPreviewFiles(resolvedFolder);
+    },
   );
 
   createWindow();

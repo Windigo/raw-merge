@@ -30,6 +30,18 @@ type SuggestOptions = {
   maxGapSeconds?: number;
 };
 
+type SaveMergedResult = {
+  savedPath: string;
+};
+
+type ExportJpegResult = {
+  savedPath: string;
+};
+
+type CleanupLegacyPreviewsResult = {
+  deletedCount: number;
+};
+
 interface Window {
   hdrApi: {
     listHdrFiles: () => Promise<HdrListResponse>;
@@ -47,6 +59,14 @@ interface Window {
       filePaths: string[],
       options?: MergeOptions,
     ) => Promise<MergeRawResponse>;
+    saveMergedAs: (sourcePath: string) => Promise<SaveMergedResult | null>;
+    exportPreviewJpeg: (
+      fileNameStem: string,
+      jpegBytes: Uint8Array,
+    ) => Promise<ExportJpegResult | null>;
+    cleanupLegacyPreviews: (
+      folderPath: string,
+    ) => Promise<CleanupLegacyPreviewsResult>;
   };
 }
 

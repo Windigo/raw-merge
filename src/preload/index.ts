@@ -32,6 +32,18 @@ type SuggestOptions = {
   maxGapSeconds?: number;
 };
 
+type SaveMergedResult = {
+  savedPath: string;
+};
+
+type ExportJpegResult = {
+  savedPath: string;
+};
+
+type CleanupLegacyPreviewsResult = {
+  deletedCount: number;
+};
+
 const api = {
   listHdrFiles: (): Promise<HdrListResponse> =>
     ipcRenderer.invoke("hdr:listFiles"),
@@ -57,6 +69,17 @@ const api = {
     options?: MergeOptions,
   ): Promise<MergeRawResponse> =>
     ipcRenderer.invoke("hdr:mergeRawToHdr", filePaths, options),
+  saveMergedAs: (sourcePath: string): Promise<SaveMergedResult | null> =>
+    ipcRenderer.invoke("hdr:saveMergedAs", sourcePath),
+  exportPreviewJpeg: (
+    fileNameStem: string,
+    jpegBytes: Uint8Array,
+  ): Promise<ExportJpegResult | null> =>
+    ipcRenderer.invoke("hdr:exportPreviewJpeg", fileNameStem, jpegBytes),
+  cleanupLegacyPreviews: (
+    folderPath: string,
+  ): Promise<CleanupLegacyPreviewsResult> =>
+    ipcRenderer.invoke("hdr:cleanupLegacyPreviews", folderPath),
 };
 
 contextBridge.exposeInMainWorld("hdrApi", api);
