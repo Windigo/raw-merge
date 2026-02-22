@@ -7,6 +7,27 @@ type TreeNode = {
   children?: Map<string, unknown>;
 };
 
+type RadialLayer = {
+  id: string;
+  name: string;
+  centerX: number;
+  centerY: number;
+  radiusX: number;
+  radiusY: number;
+  rotationDeg: number;
+  feather: number;
+  exposure: number;
+  gamma: number;
+  contrast: number;
+  warmth: number;
+  saturation: number;
+  tint: number;
+  vibrance: number;
+  red: number;
+  green: number;
+  blue: number;
+};
+
 const LAST_FOLDER_STORAGE_KEY = "hdr-merge:last-folder";
 
 @customElement("hdr-merge-app")
@@ -378,6 +399,17 @@ class HdrMergeApp extends LitElement {
       gap: 8px;
       font-size: 12px;
       opacity: 0.95;
+    }
+
+    .radial-layer-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .radial-layer-select {
+      width: 100%;
     }
 
     .radial-toggle {
@@ -897,6 +929,11 @@ class HdrMergeApp extends LitElement {
       box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.08);
     }
 
+    .radial-mask-outer-active {
+      border-width: 2px;
+      border-color: rgba(250, 204, 21, 0.95);
+    }
+
     .radial-mask-inner {
       border: 1.5px dashed rgba(248, 250, 252, 0.85);
     }
@@ -1104,28 +1141,10 @@ class HdrMergeApp extends LitElement {
   private previewBlue = 0;
 
   @state()
-  private radialEnabled = false;
+  private radialLayers: RadialLayer[] = [];
 
   @state()
-  private radialCenterX = 0.5;
-
-  @state()
-  private radialCenterY = 0.5;
-
-  @state()
-  private radialRadius = 0.22;
-
-  @state()
-  private radialFeather = 0.55;
-
-  @state()
-  private radialExposure = 0;
-
-  @state()
-  private radialWarmth = 0;
-
-  @state()
-  private radialSaturation = 0;
+  private selectedEditLayerId: "main" | string = "main";
 
   @state()
   private exportStatusMessage = "";
@@ -1178,6 +1197,7 @@ class HdrMergeApp extends LitElement {
   private splitLineDragging = false;
   private splitDragPointerId: number | null = null;
   private radialDragPointerId: number | null = null;
+  private radialLayerCounter = 1;
   private thumbnailLoadGeneration = 0;
 
   private zoomScale = 1;
@@ -1283,10 +1303,32 @@ class HdrMergeApp extends LitElement {
         <section class="panel sidebar">
           <section class="preview-adjustments">
             <h3 class="settings-title">Preview Adjustments</h3>
+            <div class="radial-layer-row">
+              <select
+                class="radial-layer-select"
+                .value=${this.selectedEditLayerId}
+                @change=${this.onSelectedLayerChange}
+                ?disabled=${this.isBusy}
+                aria-label="Edit layer"
+              >
+                <option value="main">Main</option>
+                ${this.radialLayers.map(
+                  (layer, index) =>
+                    html`<option value=${layer.id}>Radial ${index + 1}</option>`,
+                )}
+              </select>
+              <button
+                class="radial-toggle"
+                @click=${this.onAddRadialLayer}
+                ?disabled=${this.isBusy}
+              >
+                Add Radial
+              </button>
+            </div>
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Exposure</span>
               <span class="preview-adjustment-value"
-                >${this.formatPreviewExposureEv(this.previewExposureEv)}</span
+                >${this.formatPreviewExposureEv(this.layerExposureValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1294,7 +1336,7 @@ class HdrMergeApp extends LitElement {
                 min="-4"
                 max="4"
                 step="0.1"
-                .value=${String(this.previewExposureEv)}
+                .value=${String(this.layerExposureValue())}
                 @input=${this.onPreviewExposureInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview exposure"
@@ -1303,7 +1345,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Gamma</span>
               <span class="preview-adjustment-value"
-                >${this.previewGamma.toFixed(2)}</span
+                >${this.layerGammaValue().toFixed(2)}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1311,7 +1353,7 @@ class HdrMergeApp extends LitElement {
                 min="0.5"
                 max="3"
                 step="0.05"
-                .value=${String(this.previewGamma)}
+                .value=${String(this.layerGammaValue())}
                 @input=${this.onPreviewGammaInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview gamma"
@@ -1320,7 +1362,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Contrast</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewContrast)}</span
+                >${this.formatSignedPercent(this.layerContrastValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1328,7 +1370,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewContrast)}
+                .value=${String(this.layerContrastValue())}
                 @input=${this.onPreviewContrastInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview contrast"
@@ -1337,7 +1379,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Warmth</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewWarmth)}</span
+                >${this.formatSignedPercent(this.layerWarmthValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1345,7 +1387,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewWarmth)}
+                .value=${String(this.layerWarmthValue())}
                 @input=${this.onPreviewWarmthInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview warmth"
@@ -1354,7 +1396,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Saturation</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewSaturation)}</span
+                >${this.formatSignedPercent(this.layerSaturationValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1362,7 +1404,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewSaturation)}
+                .value=${String(this.layerSaturationValue())}
                 @input=${this.onPreviewSaturationInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview saturation"
@@ -1371,7 +1413,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Tint</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewTint)}</span
+                >${this.formatSignedPercent(this.layerTintValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1379,7 +1421,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewTint)}
+                .value=${String(this.layerTintValue())}
                 @input=${this.onPreviewTintInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview tint"
@@ -1388,7 +1430,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Vibrance</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewVibrance)}</span
+                >${this.formatSignedPercent(this.layerVibranceValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1396,7 +1438,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewVibrance)}
+                .value=${String(this.layerVibranceValue())}
                 @input=${this.onPreviewVibranceInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview vibrance"
@@ -1412,7 +1454,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Red</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewRed)}</span
+                >${this.formatSignedPercent(this.layerRedValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1420,7 +1462,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewRed)}
+                .value=${String(this.layerRedValue())}
                 @input=${this.onPreviewRedInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview red"
@@ -1429,7 +1471,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Green</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewGreen)}</span
+                >${this.formatSignedPercent(this.layerGreenValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1437,7 +1479,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewGreen)}
+                .value=${String(this.layerGreenValue())}
                 @input=${this.onPreviewGreenInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview green"
@@ -1446,7 +1488,7 @@ class HdrMergeApp extends LitElement {
             <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Blue</span>
               <span class="preview-adjustment-value"
-                >${this.formatSignedPercent(this.previewBlue)}</span
+                >${this.formatSignedPercent(this.layerBlueValue())}</span
               >
               <input
                 class="preview-adjustment-slider"
@@ -1454,7 +1496,7 @@ class HdrMergeApp extends LitElement {
                 min="-100"
                 max="100"
                 step="1"
-                .value=${String(this.previewBlue)}
+                .value=${String(this.layerBlueValue())}
                 @input=${this.onPreviewBlueInput}
                 @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview blue"
@@ -1471,18 +1513,12 @@ class HdrMergeApp extends LitElement {
             <section class="radial-tools">
               <div class="radial-tools-header">
                 <span>Radial Local Edit</span>
-                <button
-                  class="radial-toggle"
-                  @click=${this.onToggleRadialEdit}
-                  ?disabled=${this.isBusy}
-                >
-                  ${this.radialEnabled ? "Enabled" : "Disabled"}
-                </button>
+                <span>${this.radialLayers.length} radial(s)</span>
               </div>
               <label class="preview-adjustment-row">
-                <span class="preview-adjustment-label">Radial Radius</span>
+                <span class="preview-adjustment-label">Ellipse Width</span>
                 <span class="preview-adjustment-value"
-                  >${Math.round(this.radialRadius * 100)}%</span
+                  >${Math.round(this.selectedRadialWidth() * 100)}%</span
                 >
                 <input
                   class="preview-adjustment-slider"
@@ -1490,16 +1526,35 @@ class HdrMergeApp extends LitElement {
                   min="5"
                   max="65"
                   step="1"
-                  .value=${String(Math.round(this.radialRadius * 100))}
-                  @input=${this.onRadialRadiusInput}
+                  .value=${String(Math.round(this.selectedRadialWidth() * 100))}
+                  @input=${this.onRadialWidthInput}
                   @change=${this.onPreviewAdjustmentCommit}
-                  aria-label="Radial radius"
+                  ?disabled=${this.selectedEditLayerId === "main"}
+                  aria-label="Radial width"
+                />
+              </label>
+              <label class="preview-adjustment-row">
+                <span class="preview-adjustment-label">Ellipse Height</span>
+                <span class="preview-adjustment-value"
+                  >${Math.round(this.selectedRadialHeight() * 100)}%</span
+                >
+                <input
+                  class="preview-adjustment-slider"
+                  type="range"
+                  min="5"
+                  max="65"
+                  step="1"
+                  .value=${String(Math.round(this.selectedRadialHeight() * 100))}
+                  @input=${this.onRadialHeightInput}
+                  @change=${this.onPreviewAdjustmentCommit}
+                  ?disabled=${this.selectedEditLayerId === "main"}
+                  aria-label="Radial height"
                 />
               </label>
               <label class="preview-adjustment-row">
                 <span class="preview-adjustment-label">Radial Feather</span>
                 <span class="preview-adjustment-value"
-                  >${Math.round(this.radialFeather * 100)}%</span
+                  >${Math.round(this.selectedRadialFeather() * 100)}%</span
                 >
                 <input
                   class="preview-adjustment-slider"
@@ -1507,61 +1562,29 @@ class HdrMergeApp extends LitElement {
                   min="0"
                   max="100"
                   step="1"
-                  .value=${String(Math.round(this.radialFeather * 100))}
+                  .value=${String(Math.round(this.selectedRadialFeather() * 100))}
                   @input=${this.onRadialFeatherInput}
                   @change=${this.onPreviewAdjustmentCommit}
+                  ?disabled=${this.selectedEditLayerId === "main"}
                   aria-label="Radial feather"
                 />
               </label>
               <label class="preview-adjustment-row">
-                <span class="preview-adjustment-label">Radial Exposure</span>
+                <span class="preview-adjustment-label">Ellipse Rotation</span>
                 <span class="preview-adjustment-value"
-                  >${this.formatPreviewExposureEv(this.radialExposure)}</span
+                  >${Math.round(this.selectedRadialRotationDeg())}°</span
                 >
                 <input
                   class="preview-adjustment-slider"
                   type="range"
-                  min="-3"
-                  max="3"
-                  step="0.1"
-                  .value=${String(this.radialExposure)}
-                  @input=${this.onRadialExposureInput}
-                  @change=${this.onPreviewAdjustmentCommit}
-                  aria-label="Radial exposure"
-                />
-              </label>
-              <label class="preview-adjustment-row">
-                <span class="preview-adjustment-label">Radial Warmth</span>
-                <span class="preview-adjustment-value"
-                  >${this.formatSignedPercent(this.radialWarmth)}</span
-                >
-                <input
-                  class="preview-adjustment-slider"
-                  type="range"
-                  min="-100"
-                  max="100"
+                  min="-180"
+                  max="180"
                   step="1"
-                  .value=${String(this.radialWarmth)}
-                  @input=${this.onRadialWarmthInput}
+                  .value=${String(Math.round(this.selectedRadialRotationDeg()))}
+                  @input=${this.onRadialRotationInput}
                   @change=${this.onPreviewAdjustmentCommit}
-                  aria-label="Radial warmth"
-                />
-              </label>
-              <label class="preview-adjustment-row">
-                <span class="preview-adjustment-label">Radial Saturation</span>
-                <span class="preview-adjustment-value"
-                  >${this.formatSignedPercent(this.radialSaturation)}</span
-                >
-                <input
-                  class="preview-adjustment-slider"
-                  type="range"
-                  min="-100"
-                  max="100"
-                  step="1"
-                  .value=${String(this.radialSaturation)}
-                  @input=${this.onRadialSaturationInput}
-                  @change=${this.onPreviewAdjustmentCommit}
-                  aria-label="Radial saturation"
+                  ?disabled=${this.selectedEditLayerId === "main"}
+                  aria-label="Radial rotation"
                 />
               </label>
             </section>
@@ -2221,14 +2244,16 @@ class HdrMergeApp extends LitElement {
         @touchcancel=${this.onCanvasTouchEnd}
       ></canvas>
       ${this.radialMaskVisible()
-        ? html`<div
-              class="radial-mask-outer"
-              style=${this.radialOuterMaskStyle()}
-            ></div>
-            <div
-              class="radial-mask-inner"
-              style=${this.radialInnerMaskStyle()}
-            ></div>`
+        ? this.radialLayers.map(
+            (layer) => html`<div
+                  class=${`radial-mask-outer${this.selectedEditLayerId === layer.id ? " radial-mask-outer-active" : ""}`}
+                  style=${this.radialOuterMaskStyle(layer)}
+                ></div>
+                <div
+                  class="radial-mask-inner"
+                  style=${this.radialInnerMaskStyle(layer)}
+                ></div>`,
+          )
         : ""}
       ${this.hasCompareSources()
         ? html`
@@ -3170,11 +3195,20 @@ class HdrMergeApp extends LitElement {
     const greenGain = Math.max(0, 1 + this.previewGreen / 100);
     const blueGain = Math.max(0, 1 + this.previewBlue / 100);
     const hasCurve = !this.curveIsIdentity();
-    const hasRadialAdjustment =
-      this.radialEnabled &&
-      (Math.abs(this.radialExposure) > 1e-6 ||
-        Math.abs(this.radialWarmth) > 1e-6 ||
-        Math.abs(this.radialSaturation) > 1e-6);
+    const activeRadialLayers = this.radialLayers.filter(
+      (layer) =>
+        Math.abs(layer.exposure) > 1e-6 ||
+        Math.abs(layer.gamma - 1) > 1e-6 ||
+        Math.abs(layer.contrast) > 1e-6 ||
+        Math.abs(layer.warmth) > 1e-6 ||
+        Math.abs(layer.saturation) > 1e-6 ||
+        Math.abs(layer.tint) > 1e-6 ||
+        Math.abs(layer.vibrance) > 1e-6 ||
+        Math.abs(layer.red) > 1e-6 ||
+        Math.abs(layer.green) > 1e-6 ||
+        Math.abs(layer.blue) > 1e-6,
+    );
+    const hasRadialAdjustment = activeRadialLayers.length > 0;
 
     if (Math.abs(exposureScale - 1) < 1e-6 && Math.abs(gamma - 1) < 1e-6) {
       if (
@@ -3200,11 +3234,6 @@ class HdrMergeApp extends LitElement {
     const saturationScale = Math.max(0, 1 + saturation);
     const tintRedBlueGain = 1 + tint * 0.18;
     const tintGreenGain = 1 - tint * 0.24;
-    const radialActive =
-      this.radialEnabled &&
-      (Math.abs(this.radialExposure) > 1e-6 ||
-        Math.abs(this.radialWarmth) > 1e-6 ||
-        Math.abs(this.radialSaturation) > 1e-6);
     const curveLut = this.buildCurveLut();
     const lut = new Uint8ClampedArray(256);
 
@@ -3301,19 +3330,40 @@ class HdrMergeApp extends LitElement {
     );
     const data = imageData.data;
 
-    const radialCenterX = this.radialCenterX * workingContext.width;
-    const radialCenterY = this.radialCenterY * workingContext.height;
-    const radialRadiusPx = Math.max(
-      1,
-      this.radialRadius * Math.min(workingContext.width, workingContext.height),
-    );
-    const radialFeather = Math.min(1, Math.max(0, this.radialFeather));
-    const radialInnerRatio = Math.max(0, 1 - radialFeather);
-    const radialExposureScale = Math.pow(2, this.radialExposure);
-    const radialWarmthValue = this.radialWarmth / 100;
-    const radialWarmthRedGain = 1 + radialWarmthValue * 0.22;
-    const radialWarmthBlueGain = 1 - radialWarmthValue * 0.22;
-    const radialSaturationScale = Math.max(0, 1 + this.radialSaturation / 100);
+    const radialAdjustments = activeRadialLayers.map((layer) => {
+      const feather = Math.min(1, Math.max(0, layer.feather));
+      const rotation = (layer.rotationDeg * Math.PI) / 180;
+      const cosTheta = Math.cos(rotation);
+      const sinTheta = Math.sin(rotation);
+      return {
+        centerX: layer.centerX * workingContext.width,
+        centerY: layer.centerY * workingContext.height,
+        radiusXPx: Math.max(
+          1,
+          layer.radiusX * Math.min(workingContext.width, workingContext.height),
+        ),
+        radiusYPx: Math.max(
+          1,
+          layer.radiusY * Math.min(workingContext.width, workingContext.height),
+        ),
+        feather,
+        innerRatio: Math.max(0, 1 - feather),
+        cosTheta,
+        sinTheta,
+        exposureScale: Math.pow(2, layer.exposure),
+        gammaPower: 1 / Math.max(0.01, layer.gamma),
+        contrastScale: Math.max(0, 1 + layer.contrast / 100),
+        warmthRedGain: 1 + (layer.warmth / 100) * 0.22,
+        warmthBlueGain: 1 - (layer.warmth / 100) * 0.22,
+        saturationScale: Math.max(0, 1 + layer.saturation / 100),
+        tintRedBlueGain: 1 + (layer.tint / 100) * 0.18,
+        tintGreenGain: 1 - (layer.tint / 100) * 0.24,
+        vibranceValue: layer.vibrance / 100,
+        redGain: Math.max(0, 1 + layer.red / 100),
+        greenGain: Math.max(0, 1 + layer.green / 100),
+        blueGain: Math.max(0, 1 + layer.blue / 100),
+      };
+    });
 
     for (let index = 0, pixel = 0; index < data.length; index += 4, pixel += 1) {
       const mappedRed = lut[data[index]];
@@ -3385,26 +3435,34 @@ class HdrMergeApp extends LitElement {
       let localGreen = balancedGreen;
       let localBlue = balancedBlue;
 
-      if (radialActive) {
+      if (radialAdjustments.length > 0) {
         const pixelX = pixel % workingContext.width;
         const pixelY = Math.floor(pixel / workingContext.width);
-        const dx = pixelX - radialCenterX;
-        const dy = pixelY - radialCenterY;
-        const distanceRatio = Math.hypot(dx, dy) / radialRadiusPx;
+        for (const radial of radialAdjustments) {
+          const dx = pixelX - radial.centerX;
+          const dy = pixelY - radial.centerY;
+          const localX = dx * radial.cosTheta + dy * radial.sinTheta;
+          const localY = -dx * radial.sinTheta + dy * radial.cosTheta;
+          const normX = localX / radial.radiusXPx;
+          const normY = localY / radial.radiusYPx;
+          const distanceRatio = Math.hypot(normX, normY);
 
-        let radialMask = 0;
-        if (distanceRatio <= 1) {
-          if (radialFeather <= 1e-6 || distanceRatio <= radialInnerRatio) {
-            radialMask = 1;
-          } else {
-            const featherSpan = Math.max(1e-6, 1 - radialInnerRatio);
-            radialMask = 1 - (distanceRatio - radialInnerRatio) / featherSpan;
-            radialMask = Math.min(1, Math.max(0, radialMask));
+          let radialMask = 0;
+          if (distanceRatio <= 1) {
+            if (radial.feather <= 1e-6 || distanceRatio <= radial.innerRatio) {
+              radialMask = 1;
+            } else {
+              const featherSpan = Math.max(1e-6, 1 - radial.innerRatio);
+              radialMask = 1 - (distanceRatio - radial.innerRatio) / featherSpan;
+              radialMask = Math.min(1, Math.max(0, radialMask));
+            }
           }
-        }
 
-        if (radialMask > 0) {
-          const exposureFactor = Math.pow(radialExposureScale, radialMask);
+          if (radialMask <= 0) {
+            continue;
+          }
+
+          const exposureFactor = Math.pow(radial.exposureScale, radialMask);
           let adjustedRed = Math.min(255, Math.max(0, localRed * exposureFactor));
           let adjustedGreen = Math.min(
             255,
@@ -3415,22 +3473,85 @@ class HdrMergeApp extends LitElement {
             Math.max(0, localBlue * exposureFactor),
           );
 
+          const localContrastScale =
+            1 + (radial.contrastScale - 1) * radialMask;
+          const localGammaPower = 1 + (radial.gammaPower - 1) * radialMask;
+
+          const contrastRed =
+            (adjustedRed / 255 - 0.5) * localContrastScale + 0.5;
+          const contrastGreen =
+            (adjustedGreen / 255 - 0.5) * localContrastScale + 0.5;
+          const contrastBlue =
+            (adjustedBlue / 255 - 0.5) * localContrastScale + 0.5;
+          adjustedRed =
+            Math.pow(Math.min(1, Math.max(0, contrastRed)), localGammaPower) *
+            255;
+          adjustedGreen =
+            Math.pow(Math.min(1, Math.max(0, contrastGreen)), localGammaPower) *
+            255;
+          adjustedBlue =
+            Math.pow(Math.min(1, Math.max(0, contrastBlue)), localGammaPower) *
+            255;
+
           adjustedRed = Math.min(
             255,
-            Math.max(0, adjustedRed * (1 + (radialWarmthRedGain - 1) * radialMask)),
+            Math.max(0, adjustedRed * (1 + (radial.warmthRedGain - 1) * radialMask)),
           );
           adjustedGreen = Math.min(
             255,
-            Math.max(0, adjustedGreen),
+            Math.max(0, adjustedGreen * (1 + (radial.tintGreenGain - 1) * radialMask)),
           );
           adjustedBlue = Math.min(
             255,
-            Math.max(0, adjustedBlue * (1 + (radialWarmthBlueGain - 1) * radialMask)),
+            Math.max(0, adjustedBlue * (1 + (radial.warmthBlueGain - 1) * radialMask)),
+          );
+          adjustedRed = Math.min(
+            255,
+            Math.max(0, adjustedRed * (1 + (radial.tintRedBlueGain - 1) * radialMask)),
+          );
+          adjustedBlue = Math.min(
+            255,
+            Math.max(0, adjustedBlue * (1 + (radial.tintRedBlueGain - 1) * radialMask)),
+          );
+
+          const localVibrance = radial.vibranceValue * radialMask;
+          const vibrantLuminance =
+            0.2126 * adjustedRed + 0.7152 * adjustedGreen + 0.0722 * adjustedBlue;
+          const vibrantMax = Math.max(adjustedRed, adjustedGreen, adjustedBlue);
+          const vibrantMin = Math.min(adjustedRed, adjustedGreen, adjustedBlue);
+          const vibrantColorfulness = (vibrantMax - vibrantMin) / 255;
+          const localVibranceScale =
+            localVibrance >= 0
+              ? 1 + localVibrance * (1 - vibrantColorfulness)
+              : 1 + localVibrance;
+          adjustedRed = Math.min(
+            255,
+            Math.max(
+              0,
+              vibrantLuminance +
+                (adjustedRed - vibrantLuminance) * localVibranceScale,
+            ),
+          );
+          adjustedGreen = Math.min(
+            255,
+            Math.max(
+              0,
+              vibrantLuminance +
+                (adjustedGreen - vibrantLuminance) * localVibranceScale,
+            ),
+          );
+          adjustedBlue = Math.min(
+            255,
+            Math.max(
+              0,
+              vibrantLuminance +
+                (adjustedBlue - vibrantLuminance) * localVibranceScale,
+            ),
           );
 
           const radialLuminance =
             0.2126 * adjustedRed + 0.7152 * adjustedGreen + 0.0722 * adjustedBlue;
-          const radialSatScale = 1 + (radialSaturationScale - 1) * radialMask;
+          const radialSatScale = 1 + (radial.saturationScale - 1) * radialMask;
           adjustedRed = Math.min(
             255,
             Math.max(
@@ -3451,6 +3572,19 @@ class HdrMergeApp extends LitElement {
               0,
               radialLuminance + (adjustedBlue - radialLuminance) * radialSatScale,
             ),
+          );
+
+          adjustedRed = Math.min(
+            255,
+            Math.max(0, adjustedRed * (1 + (radial.redGain - 1) * radialMask)),
+          );
+          adjustedGreen = Math.min(
+            255,
+            Math.max(0, adjustedGreen * (1 + (radial.greenGain - 1) * radialMask)),
+          );
+          adjustedBlue = Math.min(
+            255,
+            Math.max(0, adjustedBlue * (1 + (radial.blueGain - 1) * radialMask)),
           );
 
           localRed = adjustedRed;
@@ -3630,9 +3764,9 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    if (this.radialEnabled) {
+    if (this.selectedRadialLayer()) {
       const point = this.clientToCanvasPoint(event.clientX, event.clientY);
-      this.setRadialCenterFromCanvasPoint(point.x, point.y);
+      this.setSelectedRadialCenterFromCanvasPoint(point.x, point.y);
       this.radialDragPointerId = event.pointerId;
       this.currentCanvas.setPointerCapture(event.pointerId);
       this.currentCanvas.style.cursor = "crosshair";
@@ -3663,7 +3797,7 @@ class HdrMergeApp extends LitElement {
       this.radialDragPointerId === event.pointerId
     ) {
       const point = this.clientToCanvasPoint(event.clientX, event.clientY);
-      this.setRadialCenterFromCanvasPoint(point.x, point.y);
+      this.setSelectedRadialCenterFromCanvasPoint(point.x, point.y);
       this.requestPreviewRender("interactive");
       event.preventDefault();
       return;
@@ -3878,7 +4012,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewExposureEv = Math.min(4, Math.max(-4, value));
+    const exposure = Math.min(4, Math.max(-4, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewExposureEv = exposure;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, exposure }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3888,7 +4027,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewGamma = Math.min(3, Math.max(0.5, value));
+    const gamma = Math.min(3, Math.max(0.5, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewGamma = gamma;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, gamma }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3898,7 +4042,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewContrast = Math.min(100, Math.max(-100, value));
+    const contrast = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewContrast = contrast;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, contrast }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3908,7 +4057,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewWarmth = Math.min(100, Math.max(-100, value));
+    const warmth = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewWarmth = warmth;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, warmth }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3918,7 +4072,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewSaturation = Math.min(100, Math.max(-100, value));
+    const saturation = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewSaturation = saturation;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, saturation }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3928,7 +4087,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewTint = Math.min(100, Math.max(-100, value));
+    const tint = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewTint = tint;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, tint }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3938,7 +4102,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewVibrance = Math.min(100, Math.max(-100, value));
+    const vibranceValue = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewVibrance = vibranceValue;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, vibrance: vibranceValue }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3948,7 +4117,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewRed = Math.min(100, Math.max(-100, value));
+    const red = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewRed = red;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, red }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3958,7 +4132,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewGreen = Math.min(100, Math.max(-100, value));
+    const green = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewGreen = green;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, green }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3968,7 +4147,12 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.previewBlue = Math.min(100, Math.max(-100, value));
+    const blue = Math.min(100, Math.max(-100, value));
+    if (this.selectedEditLayerId === "main") {
+      this.previewBlue = blue;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({ ...layer, blue }));
+    }
     this.requestPreviewRender("interactive");
   }
 
@@ -3977,41 +4161,189 @@ class HdrMergeApp extends LitElement {
   };
 
   private onPreviewColorReset = (): void => {
-    this.previewWarmth = 0;
-    this.previewTint = 0;
-    this.previewVibrance = 0;
-    this.previewSaturation = 0;
-    this.previewRed = 0;
-    this.previewGreen = 0;
-    this.previewBlue = 0;
-    this.requestPreviewRender("full");
-  };
-
-  private onPreviewRgbReset = (): void => {
-    this.previewRed = 0;
-    this.previewGreen = 0;
-    this.previewBlue = 0;
-    this.requestPreviewRender("full");
-  };
-
-  private onToggleRadialEdit = (): void => {
-    this.radialEnabled = !this.radialEnabled;
-    if (!this.radialEnabled) {
-      this.radialDragPointerId = null;
-      if (this.currentCanvas) {
-        this.currentCanvas.style.cursor = this.zoomScale > 1 ? "grab" : "default";
-      }
+    if (this.selectedEditLayerId === "main") {
+      this.previewWarmth = 0;
+      this.previewTint = 0;
+      this.previewVibrance = 0;
+      this.previewSaturation = 0;
+      this.previewRed = 0;
+      this.previewGreen = 0;
+      this.previewBlue = 0;
+      this.previewGamma = 1;
+      this.previewContrast = 0;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({
+        ...layer,
+        warmth: 0,
+        tint: 0,
+        vibrance: 0,
+        saturation: 0,
+        red: 0,
+        green: 0,
+        blue: 0,
+        gamma: 1,
+        contrast: 0,
+      }));
     }
     this.requestPreviewRender("full");
   };
 
-  private onRadialRadiusInput(event: Event): void {
+  private onPreviewRgbReset = (): void => {
+    if (this.selectedEditLayerId === "main") {
+      this.previewRed = 0;
+      this.previewGreen = 0;
+      this.previewBlue = 0;
+    } else {
+      this.updateSelectedRadialLayer((layer) => ({
+        ...layer,
+        red: 0,
+        green: 0,
+        blue: 0,
+      }));
+    }
+    this.requestPreviewRender("full");
+  };
+
+  private onAddRadialLayer = (): void => {
+    const id = `radial-${this.radialLayerCounter}`;
+    this.radialLayerCounter += 1;
+    const newLayer: RadialLayer = {
+      id,
+      name: `Radial ${this.radialLayers.length + 1}`,
+      centerX: 0.5,
+      centerY: 0.5,
+      radiusX: 0.26,
+      radiusY: 0.18,
+      rotationDeg: 0,
+      feather: 0.55,
+      exposure: 0,
+      gamma: 1,
+      contrast: 0,
+      warmth: 0,
+      saturation: 0,
+      tint: 0,
+      vibrance: 0,
+      red: 0,
+      green: 0,
+      blue: 0,
+    };
+    this.radialLayers = [...this.radialLayers, newLayer];
+    this.selectedEditLayerId = id;
+    this.requestPreviewRender("full");
+  };
+
+  private onSelectedLayerChange = (event: Event): void => {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    this.selectedEditLayerId = value === "main" ? "main" : value;
+    this.requestPreviewRender("full");
+  };
+
+  private selectedRadialLayer(): RadialLayer | undefined {
+    if (this.selectedEditLayerId === "main") {
+      return undefined;
+    }
+
+    return this.radialLayers.find((layer) => layer.id === this.selectedEditLayerId);
+  }
+
+  private updateSelectedRadialLayer(
+    updater: (layer: RadialLayer) => RadialLayer,
+  ): void {
+    if (this.selectedEditLayerId === "main") {
+      return;
+    }
+
+    this.radialLayers = this.radialLayers.map((layer) =>
+      layer.id === this.selectedEditLayerId ? updater(layer) : layer,
+    );
+  }
+
+  private layerExposureValue(): number {
+    return this.selectedRadialLayer()?.exposure ?? this.previewExposureEv;
+  }
+
+  private layerWarmthValue(): number {
+    return this.selectedRadialLayer()?.warmth ?? this.previewWarmth;
+  }
+
+  private layerSaturationValue(): number {
+    return this.selectedRadialLayer()?.saturation ?? this.previewSaturation;
+  }
+
+  private layerGammaValue(): number {
+    return this.selectedRadialLayer()?.gamma ?? this.previewGamma;
+  }
+
+  private layerContrastValue(): number {
+    return this.selectedRadialLayer()?.contrast ?? this.previewContrast;
+  }
+
+  private layerTintValue(): number {
+    return this.selectedRadialLayer()?.tint ?? this.previewTint;
+  }
+
+  private layerVibranceValue(): number {
+    return this.selectedRadialLayer()?.vibrance ?? this.previewVibrance;
+  }
+
+  private layerRedValue(): number {
+    return this.selectedRadialLayer()?.red ?? this.previewRed;
+  }
+
+  private layerGreenValue(): number {
+    return this.selectedRadialLayer()?.green ?? this.previewGreen;
+  }
+
+  private layerBlueValue(): number {
+    return this.selectedRadialLayer()?.blue ?? this.previewBlue;
+  }
+
+  private selectedRadialWidth(): number {
+    return this.selectedRadialLayer()?.radiusX ?? 0.26;
+  }
+
+  private selectedRadialHeight(): number {
+    return this.selectedRadialLayer()?.radiusY ?? 0.18;
+  }
+
+  private selectedRadialRotationDeg(): number {
+    return this.selectedRadialLayer()?.rotationDeg ?? 0;
+  }
+
+  private onRadialWidthInput(event: Event): void {
     const value = Number((event.currentTarget as HTMLInputElement).value);
     if (!Number.isFinite(value)) {
       return;
     }
 
-    this.radialRadius = Math.min(0.65, Math.max(0.05, value / 100));
+    const radiusX = Math.min(0.65, Math.max(0.05, value / 100));
+    this.updateSelectedRadialLayer((layer) => ({ ...layer, radiusX }));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onRadialHeightInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    const radiusY = Math.min(0.65, Math.max(0.05, value / 100));
+    this.updateSelectedRadialLayer((layer) => ({ ...layer, radiusY }));
+    this.requestPreviewRender("interactive");
+  }
+
+  private selectedRadialFeather(): number {
+    return this.selectedRadialLayer()?.feather ?? 0.55;
+  }
+
+  private onRadialRotationInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    const rotationDeg = Math.min(180, Math.max(-180, value));
+    this.updateSelectedRadialLayer((layer) => ({ ...layer, rotationDeg }));
     this.requestPreviewRender("interactive");
   }
 
@@ -4021,82 +4353,60 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.radialFeather = Math.min(1, Math.max(0, value / 100));
+    const feather = Math.min(1, Math.max(0, value / 100));
+    this.updateSelectedRadialLayer((layer) => ({ ...layer, feather }));
     this.requestPreviewRender("interactive");
   }
 
-  private onRadialExposureInput(event: Event): void {
-    const value = Number((event.currentTarget as HTMLInputElement).value);
-    if (!Number.isFinite(value)) {
-      return;
-    }
-
-    this.radialExposure = Math.min(3, Math.max(-3, value));
-    this.requestPreviewRender("interactive");
-  }
-
-  private onRadialWarmthInput(event: Event): void {
-    const value = Number((event.currentTarget as HTMLInputElement).value);
-    if (!Number.isFinite(value)) {
-      return;
-    }
-
-    this.radialWarmth = Math.min(100, Math.max(-100, value));
-    this.requestPreviewRender("interactive");
-  }
-
-  private onRadialSaturationInput(event: Event): void {
-    const value = Number((event.currentTarget as HTMLInputElement).value);
-    if (!Number.isFinite(value)) {
-      return;
-    }
-
-    this.radialSaturation = Math.min(100, Math.max(-100, value));
-    this.requestPreviewRender("interactive");
-  }
-
-  private setRadialCenterFromCanvasPoint(canvasX: number, canvasY: number): void {
+  private setSelectedRadialCenterFromCanvasPoint(
+    canvasX: number,
+    canvasY: number,
+  ): void {
     if (!this.currentCanvas || this.currentCanvas.width <= 0 || this.currentCanvas.height <= 0) {
       return;
     }
 
-    this.radialCenterX = Math.min(1, Math.max(0, canvasX / this.currentCanvas.width));
-    this.radialCenterY = Math.min(1, Math.max(0, canvasY / this.currentCanvas.height));
+    const centerX = Math.min(1, Math.max(0, canvasX / this.currentCanvas.width));
+    const centerY = Math.min(1, Math.max(0, canvasY / this.currentCanvas.height));
+    this.updateSelectedRadialLayer((layer) => ({ ...layer, centerX, centerY }));
   }
 
   private radialMaskVisible(): boolean {
     return (
-      this.radialEnabled &&
+      this.radialLayers.length > 0 &&
       Boolean(this.currentCanvas) &&
       Boolean(this.currentPreviewPath || this.previousPreviewPath)
     );
   }
 
-  private radialOuterMaskStyle(): string {
+  private radialOuterMaskStyle(layer: RadialLayer): string {
     if (!this.currentCanvas) {
       return "display:none;";
     }
 
     const width = this.currentCanvas.clientWidth;
     const height = this.currentCanvas.clientHeight;
-    const radiusPx = this.radialRadius * Math.min(width, height);
-    const centerX = this.currentCanvas.offsetLeft + this.radialCenterX * width;
-    const centerY = this.currentCanvas.offsetTop + this.radialCenterY * height;
-    return `left:${centerX}px;top:${centerY}px;width:${(radiusPx * 2).toFixed(2)}px;height:${(radiusPx * 2).toFixed(2)}px;`;
+    const radiusXPx = layer.radiusX * Math.min(width, height);
+    const radiusYPx = layer.radiusY * Math.min(width, height);
+    const centerX = this.currentCanvas.offsetLeft + layer.centerX * width;
+    const centerY = this.currentCanvas.offsetTop + layer.centerY * height;
+    return `left:${centerX}px;top:${centerY}px;width:${(radiusXPx * 2).toFixed(2)}px;height:${(radiusYPx * 2).toFixed(2)}px;transform:translate(-50%,-50%) rotate(${layer.rotationDeg.toFixed(2)}deg);`;
   }
 
-  private radialInnerMaskStyle(): string {
+  private radialInnerMaskStyle(layer: RadialLayer): string {
     if (!this.currentCanvas) {
       return "display:none;";
     }
 
     const width = this.currentCanvas.clientWidth;
     const height = this.currentCanvas.clientHeight;
-    const radiusPx = this.radialRadius * Math.min(width, height);
-    const innerRadiusPx = radiusPx * Math.max(0, 1 - this.radialFeather);
-    const centerX = this.currentCanvas.offsetLeft + this.radialCenterX * width;
-    const centerY = this.currentCanvas.offsetTop + this.radialCenterY * height;
-    return `left:${centerX}px;top:${centerY}px;width:${(innerRadiusPx * 2).toFixed(2)}px;height:${(innerRadiusPx * 2).toFixed(2)}px;`;
+    const radiusXPx = layer.radiusX * Math.min(width, height);
+    const radiusYPx = layer.radiusY * Math.min(width, height);
+    const innerRadiusXPx = radiusXPx * Math.max(0, 1 - layer.feather);
+    const innerRadiusYPx = radiusYPx * Math.max(0, 1 - layer.feather);
+    const centerX = this.currentCanvas.offsetLeft + layer.centerX * width;
+    const centerY = this.currentCanvas.offsetTop + layer.centerY * height;
+    return `left:${centerX}px;top:${centerY}px;width:${(innerRadiusXPx * 2).toFixed(2)}px;height:${(innerRadiusYPx * 2).toFixed(2)}px;transform:translate(-50%,-50%) rotate(${layer.rotationDeg.toFixed(2)}deg);`;
   }
 
   private curvePathD(): string {
