@@ -872,6 +872,13 @@ class HdrMergeApp extends LitElement {
   private curveDragIndex: number | null = null;
   private curveDragPointerId: number | null = null;
   private disposeMenuActionListener?: () => void;
+  private previewRenderQueued = false;
+  private previewRenderMode: "interactive" | "full" = "full";
+  private previewRenderFrameId?: number;
+  private previewRenderInFlight = false;
+  private previewRenderPendingMode: "interactive" | "full" | null = null;
+  private previewWorkCanvas?: HTMLCanvasElement;
+  private previewWorkContext?: CanvasRenderingContext2D;
 
   private async getApi() {
     const maxWaitMs = 1500;
@@ -918,6 +925,14 @@ class HdrMergeApp extends LitElement {
     this.endSplitLineDrag();
     this.endCurveDrag();
     this.revokeThumbnailUrls();
+    if (this.previewRenderFrameId !== undefined) {
+      window.cancelAnimationFrame(this.previewRenderFrameId);
+      this.previewRenderFrameId = undefined;
+    }
+    this.previewRenderQueued = false;
+    this.previewRenderInFlight = false;
+    this.previewRenderPendingMode = null;
+    this.previewRenderMode = "full";
     this.disposeMenuActionListener?.();
     this.disposeMenuActionListener = undefined;
     super.disconnectedCallback();
@@ -957,6 +972,7 @@ class HdrMergeApp extends LitElement {
                 step="0.1"
                 .value=${String(this.previewExposureEv)}
                 @input=${this.onPreviewExposureInput}
+                @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview exposure"
               />
             </label>
@@ -973,6 +989,7 @@ class HdrMergeApp extends LitElement {
                 step="0.05"
                 .value=${String(this.previewGamma)}
                 @input=${this.onPreviewGammaInput}
+                @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview gamma"
               />
             </label>
@@ -989,6 +1006,7 @@ class HdrMergeApp extends LitElement {
                 step="1"
                 .value=${String(this.previewContrast)}
                 @input=${this.onPreviewContrastInput}
+                @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview contrast"
               />
             </label>
@@ -1005,6 +1023,7 @@ class HdrMergeApp extends LitElement {
                 step="1"
                 .value=${String(this.previewWarmth)}
                 @input=${this.onPreviewWarmthInput}
+                @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview warmth"
               />
             </label>
@@ -1021,6 +1040,7 @@ class HdrMergeApp extends LitElement {
                 step="1"
                 .value=${String(this.previewSaturation)}
                 @input=${this.onPreviewSaturationInput}
+                @change=${this.onPreviewAdjustmentCommit}
                 aria-label="Preview saturation"
               />
             </label>
@@ -1496,10 +1516,67 @@ class HdrMergeApp extends LitElement {
   }
 
   protected updated(): void {
-    this.currentCanvas =
+    const nextCanvas =
       this.renderRoot.querySelector("#currentCanvas") ?? undefined;
+    const canvasChanged = nextCanvas !== this.currentCanvas;
+    this.currentCanvas = nextCanvas;
 
-    void this.renderPreviewIfPossible();
+    if (canvasChanged && this.currentCanvas) {
+      this.requestPreviewRender("full");
+    }
+  }
+
+  private requestPreviewRender(mode: "interactive" | "full" = "full"): void {
+    if (mode === "full") {
+      this.previewRenderMode = "full";
+    } else if (
+      !(this.previewRenderQueued && this.previewRenderMode === "full")
+    ) {
+      this.previewRenderMode = "interactive";
+    }
+
+    if (this.previewRenderInFlight) {
+      this.previewRenderPendingMode =
+        this.previewRenderPendingMode === "full" || mode === "full"
+          ? "full"
+          : "interactive";
+      return;
+    }
+
+    if (this.previewRenderQueued) {
+      return;
+    }
+
+    this.previewRenderQueued = true;
+    this.previewRenderFrameId = window.requestAnimationFrame(() => {
+      this.previewRenderQueued = false;
+      this.previewRenderFrameId = undefined;
+      const useInteractiveQuality = this.previewRenderMode === "interactive";
+      this.previewRenderMode = "full";
+      void this.runPreviewRender(useInteractiveQuality);
+    });
+  }
+
+  private async runPreviewRender(interactiveQuality: boolean): Promise<void> {
+    if (this.previewRenderInFlight) {
+      this.previewRenderPendingMode =
+        this.previewRenderPendingMode === "full" || !interactiveQuality
+          ? "full"
+          : "interactive";
+      return;
+    }
+
+    this.previewRenderInFlight = true;
+    try {
+      await this.renderPreviewIfPossible(interactiveQuality);
+    } finally {
+      this.previewRenderInFlight = false;
+      if (this.previewRenderPendingMode) {
+        const pendingMode = this.previewRenderPendingMode;
+        this.previewRenderPendingMode = null;
+        this.requestPreviewRender(pendingMode);
+      }
+    }
   }
 
   private async refreshFiles(): Promise<void> {
@@ -1865,7 +1942,9 @@ class HdrMergeApp extends LitElement {
     return createImageBitmap(blob);
   }
 
-  private async renderPreviewIfPossible(): Promise<void> {
+  private async renderPreviewIfPossible(
+    interactiveQuality = false,
+  ): Promise<void> {
     if (!this.currentCanvas) {
       return;
     }
@@ -1957,7 +2036,7 @@ class HdrMergeApp extends LitElement {
       context.restore();
       this.drawSplitGuide(context, splitX, width, height);
 
-      this.applyPreviewToneMapping(context, width, height);
+      this.applyPreviewToneMapping(context, width, height, interactiveQuality);
       return;
     }
 
@@ -1974,13 +2053,14 @@ class HdrMergeApp extends LitElement {
     context.drawImage(displayBitmap, 0, 0);
     context.restore();
 
-    this.applyPreviewToneMapping(context, width, height);
+    this.applyPreviewToneMapping(context, width, height, interactiveQuality);
   }
 
   private applyPreviewToneMapping(
     context: CanvasRenderingContext2D,
     width: number,
     height: number,
+    interactiveQuality = false,
   ): void {
     const exposureScale = Math.pow(2, this.previewExposureEv);
     const gamma = this.previewGamma;
@@ -2000,8 +2080,6 @@ class HdrMergeApp extends LitElement {
       }
     }
 
-    const imageData = context.getImageData(0, 0, width, height);
-    const data = imageData.data;
     const gammaPower = 1 / Math.max(0.01, gamma);
     const contrastScale = Math.max(0, 1 + contrast);
     const warmthRedGain = 1 + warmth * 0.22;
@@ -2018,6 +2096,90 @@ class HdrMergeApp extends LitElement {
       const gammaAdjusted = Math.pow(clampedContrast, gammaPower);
       lut[index] = Math.min(255, Math.max(0, Math.round(gammaAdjusted * 255)));
     }
+
+    const workingContext = (() => {
+      if (!interactiveQuality) {
+        return {
+          context,
+          width,
+          height,
+          commit: () => undefined,
+        };
+      }
+
+      const scale = 0.5;
+      const workWidth = Math.max(1, Math.round(width * scale));
+      const workHeight = Math.max(1, Math.round(height * scale));
+
+      if (!this.previewWorkCanvas) {
+        this.previewWorkCanvas = document.createElement("canvas");
+      }
+
+      if (
+        this.previewWorkCanvas.width !== workWidth ||
+        this.previewWorkCanvas.height !== workHeight
+      ) {
+        this.previewWorkCanvas.width = workWidth;
+        this.previewWorkCanvas.height = workHeight;
+      }
+
+      if (!this.previewWorkContext) {
+        this.previewWorkContext =
+          this.previewWorkCanvas.getContext("2d", {
+            willReadFrequently: true,
+          }) ?? undefined;
+      }
+
+      if (!this.previewWorkContext) {
+        return {
+          context,
+          width,
+          height,
+          commit: () => undefined,
+        };
+      }
+
+      this.previewWorkContext.clearRect(0, 0, workWidth, workHeight);
+      this.previewWorkContext.drawImage(
+        context.canvas,
+        0,
+        0,
+        width,
+        height,
+        0,
+        0,
+        workWidth,
+        workHeight,
+      );
+
+      return {
+        context: this.previewWorkContext,
+        width: workWidth,
+        height: workHeight,
+        commit: () => {
+          context.clearRect(0, 0, width, height);
+          context.drawImage(
+            this.previewWorkCanvas as HTMLCanvasElement,
+            0,
+            0,
+            workWidth,
+            workHeight,
+            0,
+            0,
+            width,
+            height,
+          );
+        },
+      };
+    })();
+
+    const imageData = workingContext.context.getImageData(
+      0,
+      0,
+      workingContext.width,
+      workingContext.height,
+    );
+    const data = imageData.data;
 
     for (let index = 0; index < data.length; index += 4) {
       const mappedRed = lut[data[index]];
@@ -2055,7 +2217,8 @@ class HdrMergeApp extends LitElement {
       data[index + 2] = curveLut[blue];
     }
 
-    context.putImageData(imageData, 0, 0);
+    workingContext.context.putImageData(imageData, 0, 0);
+    workingContext.commit();
   }
 
   private drawSplitGuide(
@@ -2132,7 +2295,7 @@ class HdrMergeApp extends LitElement {
 
     this.updateSplitFromClientX(event.clientX);
     this.endSplitLineDrag();
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("full");
     event.preventDefault();
   };
 
@@ -2156,7 +2319,7 @@ class HdrMergeApp extends LitElement {
 
     const rawPercent = ((clientX - rect.left) / rect.width) * 100;
     this.splitPercent = Math.min(97, Math.max(3, rawPercent));
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private splitHandleStyle(): string {
@@ -2204,7 +2367,7 @@ class HdrMergeApp extends LitElement {
     const scaleY = this.currentCanvas.height / rect.height;
     this.panX -= event.deltaX * scaleX;
     this.panY -= event.deltaY * scaleY;
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private onCanvasPointerDown(event: PointerEvent): void {
@@ -2244,7 +2407,7 @@ class HdrMergeApp extends LitElement {
       lastX: point.x,
       lastY: point.y,
     };
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
     event.preventDefault();
   }
 
@@ -2326,7 +2489,7 @@ class HdrMergeApp extends LitElement {
       this.zoomScale = this.clampScale(nextScale);
       this.panX = anchorX - this.pinchState.imageX * this.zoomScale;
       this.panY = anchorY - this.pinchState.imageY * this.zoomScale;
-      void this.renderPreviewIfPossible();
+      this.requestPreviewRender("interactive");
       return;
     }
 
@@ -2336,7 +2499,7 @@ class HdrMergeApp extends LitElement {
       this.panX += point.x - this.panState.lastX;
       this.panY += point.y - this.panState.lastY;
       this.panState = { lastX: point.x, lastY: point.y };
-      void this.renderPreviewIfPossible();
+      this.requestPreviewRender("interactive");
     }
   }
 
@@ -2390,7 +2553,7 @@ class HdrMergeApp extends LitElement {
     this.zoomScale = nextScale;
     this.panX = focalX - imageX * this.zoomScale;
     this.panY = focalY - imageY * this.zoomScale;
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private clampScale(value: number): number {
@@ -2426,7 +2589,7 @@ class HdrMergeApp extends LitElement {
     }
 
     this.previewExposureEv = Math.min(4, Math.max(-4, value));
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private onPreviewGammaInput(event: Event): void {
@@ -2436,7 +2599,7 @@ class HdrMergeApp extends LitElement {
     }
 
     this.previewGamma = Math.min(3, Math.max(0.5, value));
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private onPreviewContrastInput(event: Event): void {
@@ -2446,7 +2609,7 @@ class HdrMergeApp extends LitElement {
     }
 
     this.previewContrast = Math.min(100, Math.max(-100, value));
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private onPreviewWarmthInput(event: Event): void {
@@ -2456,7 +2619,7 @@ class HdrMergeApp extends LitElement {
     }
 
     this.previewWarmth = Math.min(100, Math.max(-100, value));
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private onPreviewSaturationInput(event: Event): void {
@@ -2466,8 +2629,12 @@ class HdrMergeApp extends LitElement {
     }
 
     this.previewSaturation = Math.min(100, Math.max(-100, value));
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
+
+  private onPreviewAdjustmentCommit = (): void => {
+    this.requestPreviewRender("full");
+  };
 
   private curvePathD(): string {
     const { xs, ys } = this.activeCurveControls();
@@ -2637,7 +2804,7 @@ class HdrMergeApp extends LitElement {
 
     this.curveControlXsCurrent = nextXs;
     this.curveControlYs = nextYs;
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("interactive");
   }
 
   private clientToCurveNormalized(
@@ -2661,7 +2828,7 @@ class HdrMergeApp extends LitElement {
     this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
     this.curveControlYs = [...HdrMergeApp.curveControlXs];
     this.touchedCurvePointIndices = [];
-    void this.renderPreviewIfPossible();
+    this.requestPreviewRender("full");
   }
 
   private curveOverlayPoints(): Array<{ x: number; y: number }> {
