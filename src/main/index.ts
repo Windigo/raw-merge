@@ -1,4 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -16,6 +23,8 @@ const RAW_EXTENSIONS = new Set([
   ".sr2",
   ".pef",
 ]);
+
+app.setName("HDR-Merge");
 
 function getCurrentFolder(): string {
   return process.cwd();
@@ -124,9 +133,27 @@ type CleanupLegacyPreviewsResult = {
   deletedCount: number;
 };
 
-function getPythonExecutable(): string {
+type RendererMenuAction =
+  | "import"
+  | "export-save-exr"
+  | "export-jpeg"
+  | "export-cleanup-previews";
+
+let resolvedPythonExecutablePromise: Promise<string> | null = null;
+
+function getPythonExecutableCandidate(): string {
   if (process.env.HDR_MERGE_PYTHON) {
     return process.env.HDR_MERGE_PYTHON;
+  }
+
+  const bundledVenvPython = path.join(
+    process.resourcesPath,
+    ".venv",
+    "bin",
+    "python",
+  );
+  if (existsSync(bundledVenvPython)) {
+    return bundledVenvPython;
   }
 
   const workspaceVenvPython = path.join(
@@ -142,24 +169,188 @@ function getPythonExecutable(): string {
   return "python3";
 }
 
+function getManagedPythonRoot(): string {
+  return path.join(app.getPath("userData"), "python-runtime");
+}
+
+function getManagedPythonExecutable(): string {
+  return path.join(getManagedPythonRoot(), "bin", "python");
+}
+
+function getPythonScriptsRoot(): string {
+  const bundledScripts = path.join(process.resourcesPath, "python");
+  if (existsSync(bundledScripts)) {
+    return bundledScripts;
+  }
+
+  const unpackedScripts = path.join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "python",
+  );
+  if (existsSync(unpackedScripts)) {
+    return unpackedScripts;
+  }
+
+  return path.join(app.getAppPath(), "python");
+}
+
+function getPythonWorkingDirectory(): string {
+  if (app.isPackaged) {
+    return process.resourcesPath;
+  }
+
+  return app.getAppPath();
+}
+
+function runProcess(
+  executable: string,
+  args: string[],
+  options?: { cwd?: string },
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, {
+      cwd: options?.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+  });
+}
+
+async function pythonHasRequiredModules(
+  pythonExecutable: string,
+): Promise<boolean> {
+  try {
+    const result = await runProcess(pythonExecutable, [
+      "-c",
+      "import cv2, rawpy, numpy",
+    ]);
+    return result.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureManagedPythonRuntime(
+  bootstrapPython: string,
+): Promise<string> {
+  const managedRoot = getManagedPythonRoot();
+  const managedPython = getManagedPythonExecutable();
+  const scriptsRoot = getPythonScriptsRoot();
+  const requirementsPath = path.join(scriptsRoot, "requirements.txt");
+
+  if (!existsSync(managedPython)) {
+    const create = await runProcess(
+      bootstrapPython,
+      ["-m", "venv", managedRoot],
+      {
+        cwd: getPythonWorkingDirectory(),
+      },
+    );
+    if (create.code !== 0) {
+      throw new Error(
+        `Failed to create Python runtime: ${create.stderr.trim() || create.stdout.trim() || `exit code ${create.code}`}`,
+      );
+    }
+  }
+
+  const pipUpgrade = await runProcess(managedPython, [
+    "-m",
+    "pip",
+    "install",
+    "--upgrade",
+    "pip",
+  ]);
+  if (pipUpgrade.code !== 0) {
+    throw new Error(
+      `Failed to prepare Python runtime: ${pipUpgrade.stderr.trim() || pipUpgrade.stdout.trim() || `exit code ${pipUpgrade.code}`}`,
+    );
+  }
+
+  const installReqs = await runProcess(managedPython, [
+    "-m",
+    "pip",
+    "install",
+    "-r",
+    requirementsPath,
+  ]);
+  if (installReqs.code !== 0) {
+    throw new Error(
+      `Failed to install Python dependencies: ${installReqs.stderr.trim() || installReqs.stdout.trim() || `exit code ${installReqs.code}`}`,
+    );
+  }
+
+  return managedPython;
+}
+
+async function getPythonExecutable(): Promise<string> {
+  if (!resolvedPythonExecutablePromise) {
+    resolvedPythonExecutablePromise = (async () => {
+      const candidate = getPythonExecutableCandidate();
+      if (await pythonHasRequiredModules(candidate)) {
+        return candidate;
+      }
+
+      const managedPython = getManagedPythonExecutable();
+      if (
+        existsSync(managedPython) &&
+        (await pythonHasRequiredModules(managedPython))
+      ) {
+        return managedPython;
+      }
+
+      if (app.isPackaged && !process.env.HDR_MERGE_PYTHON) {
+        const bootstrapped = await ensureManagedPythonRuntime(candidate);
+        if (await pythonHasRequiredModules(bootstrapped)) {
+          return bootstrapped;
+        }
+      }
+
+      throw new Error(
+        "Missing Python dependencies (cv2/rawpy/numpy). Install with `python3 -m pip install -r python/requirements.txt` or set HDR_MERGE_PYTHON.",
+      );
+    })();
+  }
+
+  return resolvedPythonExecutablePromise;
+}
+
 function getMergeScriptPath(): string {
-  return path.join(app.getAppPath(), "python", "merge_raw_to_hdr.py");
+  return path.join(getPythonScriptsRoot(), "merge_raw_to_hdr.py");
 }
 
 function getThumbnailScriptPath(): string {
-  return path.join(app.getAppPath(), "python", "raw_thumbnail.py");
+  return path.join(getPythonScriptsRoot(), "raw_thumbnail.py");
 }
 
 function getSuggestScriptPath(): string {
-  return path.join(app.getAppPath(), "python", "suggest_hdr_sets.py");
+  return path.join(getPythonScriptsRoot(), "suggest_hdr_sets.py");
 }
 
 function getExposureScriptPath(): string {
-  return path.join(app.getAppPath(), "python", "raw_exposure.py");
+  return path.join(getPythonScriptsRoot(), "raw_exposure.py");
 }
 
 async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
-  const pythonExecutable = getPythonExecutable();
+  const pythonExecutable = await getPythonExecutable();
   const scriptPath = getThumbnailScriptPath();
 
   return new Promise<Uint8Array>((resolve, reject) => {
@@ -167,7 +358,7 @@ async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
       pythonExecutable,
       [scriptPath, filePath, "--max-size", "80"],
       {
-        cwd: app.getAppPath(),
+        cwd: getPythonWorkingDirectory(),
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -201,12 +392,12 @@ async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
 }
 
 async function getRawExposure(filePath: string): Promise<number | null> {
-  const pythonExecutable = getPythonExecutable();
+  const pythonExecutable = await getPythonExecutable();
   const scriptPath = getExposureScriptPath();
 
   return new Promise<number | null>((resolve, reject) => {
     const child = spawn(pythonExecutable, [scriptPath, filePath], {
-      cwd: app.getAppPath(),
+      cwd: getPythonWorkingDirectory(),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -252,7 +443,7 @@ async function suggestHdrSets(
   filePaths: string[],
   options?: SuggestOptions,
 ): Promise<SuggestedSet[]> {
-  const pythonExecutable = getPythonExecutable();
+  const pythonExecutable = await getPythonExecutable();
   const scriptPath = getSuggestScriptPath();
   const maxGapSeconds = Math.max(1, options?.maxGapSeconds ?? 30);
 
@@ -261,7 +452,7 @@ async function suggestHdrSets(
       pythonExecutable,
       [scriptPath, "--max-gap", String(maxGapSeconds), ...filePaths],
       {
-        cwd: app.getAppPath(),
+        cwd: getPythonWorkingDirectory(),
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -322,7 +513,7 @@ async function mergeRawImagesToHdr(
   const baseName = `merge_${firstName}-${lastName}-${datePart}-${timePart}`;
   const outputPath = path.join(outputFolder, `${baseName}.exr`);
   const previewPath = path.join(outputFolder, "hdr-merge-preview.png");
-  const pythonExecutable = getPythonExecutable();
+  const pythonExecutable = await getPythonExecutable();
   const scriptPath = getMergeScriptPath();
 
   return new Promise<PythonMergeResult>((resolve, reject) => {
@@ -339,7 +530,7 @@ async function mergeRawImagesToHdr(
       ...filePaths,
     ];
     const child = spawn(pythonExecutable, args, {
-      cwd: app.getAppPath(),
+      cwd: getPythonWorkingDirectory(),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -462,6 +653,69 @@ async function cleanupLegacyPreviewFiles(
   return { deletedCount };
 }
 
+function sendMenuAction(
+  targetWindow: BrowserWindow | null,
+  action: RendererMenuAction,
+): void {
+  const window = targetWindow ?? BrowserWindow.getFocusedWindow();
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  window.webContents.send("hdr:menuAction", action);
+}
+
+function buildAppMenu(window: BrowserWindow): Menu {
+  const template: MenuItemConstructorOptions[] = [];
+
+  if (process.platform === "darwin") {
+    template.push({
+      label: "HDR-Merge",
+      submenu: [
+        { role: "about", label: "About HDR-Merge" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    });
+  }
+
+  template.push({
+    label: "Files",
+    submenu: [
+      {
+        label: "Import",
+        accelerator: "CmdOrCtrl+I",
+        click: () => sendMenuAction(window, "import"),
+      },
+      {
+        label: "Exports",
+        submenu: [
+          {
+            label: "Save merged EXR as…",
+            click: () => sendMenuAction(window, "export-save-exr"),
+          },
+          {
+            label: "Export processed JPEG…",
+            click: () => sendMenuAction(window, "export-jpeg"),
+          },
+          {
+            label: "Cleanup old preview files…",
+            click: () => sendMenuAction(window, "export-cleanup-previews"),
+          },
+        ],
+      },
+    ],
+  });
+
+  return Menu.buildFromTemplate(template);
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1200,
@@ -480,9 +734,17 @@ function createWindow() {
   } else {
     window.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
+
+  Menu.setApplicationMenu(buildAppMenu(window));
 }
 
 app.whenReady().then(() => {
+  app.setName("HDR-Merge");
+  app.setAboutPanelOptions({
+    applicationName: "HDR-Merge",
+    applicationVersion: app.getVersion(),
+  });
+
   ipcMain.handle("hdr:pickFolder", async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) {
@@ -519,6 +781,21 @@ app.whenReady().then(() => {
   );
   ipcMain.handle(
     "hdr:mergeRawToHdr",
+    async (_event, filePaths: string[], options?: MergeOptions) =>
+      mergeRawImagesToHdr(filePaths, options),
+  );
+  ipcMain.handle(
+    "hdr:mergeRawtohdr",
+    async (_event, filePaths: string[], options?: MergeOptions) =>
+      mergeRawImagesToHdr(filePaths, options),
+  );
+  ipcMain.handle(
+    "mergeRawToHdr",
+    async (_event, filePaths: string[], options?: MergeOptions) =>
+      mergeRawImagesToHdr(filePaths, options),
+  );
+  ipcMain.handle(
+    "mergeRawtohdr",
     async (_event, filePaths: string[], options?: MergeOptions) =>
       mergeRawImagesToHdr(filePaths, options),
   );

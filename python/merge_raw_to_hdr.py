@@ -2,7 +2,7 @@
 import argparse
 import json
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
 
@@ -179,7 +179,7 @@ def align_images_mtb(images: List[np.ndarray]) -> List[np.ndarray]:
 def merge_to_hdr(
     file_paths: List[str],
     output_path: str,
-    preview_path: str | None,
+    preview_path: Optional[str],
     color_space: str,
     base_frame: str,
 ) -> Tuple[int, int, float, float]:

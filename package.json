@@ -1,5 +1,6 @@
 {
     "name": "hdr-merge",
+    "productName": "HDR-Merge",
     "version": "0.1.0",
     "description": "Electron + Lit app to view and merge HDR images in current folder",
     "main": "out/main/index.js",
@@ -9,7 +10,8 @@
         "dev": "electron-vite dev",
         "build": "electron-vite build",
         "preview": "electron-vite preview",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "dist:mac": "npm run build && electron-builder --mac dir"
     },
     "dependencies": {
         "lit": "^3.2.1",
@@ -18,8 +20,32 @@
     "devDependencies": {
         "@types/node": "^22.13.10",
         "electron": "^34.3.0",
+        "electron-builder": "^24.13.3",
         "electron-vite": "^3.1.0",
         "typescript": "^5.8.2",
         "vite": "^5.4.14"
+    },
+    "build": {
+        "appId": "com.windigo.hdrmerge",
+        "productName": "HDR-Merge",
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "out/**/*",
+            "package.json"
+        ],
+        "extraResources": [
+            {
+                "from": "python",
+                "to": "python"
+            }
+        ],
+        "mac": {
+            "target": [
+                "dir"
+            ],
+            "category": "public.app-category.photography"
+        }
     }
 }

@@ -2,11 +2,12 @@
 import json
 import subprocess
 import sys
+from typing import Optional
 
 import rawpy
 
 
-def _read_with_mdls(path: str) -> float | None:
+def _read_with_mdls(path: str) -> Optional[float]:
     try:
         result = subprocess.run(
             ["mdls", "-name", "kMDItemExposureTimeSeconds", "-raw", path],
@@ -35,7 +36,7 @@ def _read_with_mdls(path: str) -> float | None:
     return value
 
 
-def read_exposure_seconds(path: str) -> float | None:
+def read_exposure_seconds(path: str) -> Optional[float]:
     try:
         with rawpy.imread(path) as raw:
             metadata = getattr(raw, "metadata", None)

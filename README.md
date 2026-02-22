@@ -74,3 +74,18 @@ export HDR_MERGE_PYTHON=/absolute/path/to/python
 ```bash
 npm run build
 ```
+
+## Package (macOS app bundle)
+
+Use a packaged app (not `npm run dev`) to verify the real app menu title in macOS:
+
+```bash
+npm run dist:mac
+open release/mac-arm64/HDR-Merge.app
+```
+
+If your Mac is Intel, use:
+
+```bash
+open release/mac/HDR-Merge.app
+```

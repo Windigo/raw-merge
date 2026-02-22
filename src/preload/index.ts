@@ -44,6 +44,12 @@ type CleanupLegacyPreviewsResult = {
   deletedCount: number;
 };
 
+type RendererMenuAction =
+  | "import"
+  | "export-save-exr"
+  | "export-jpeg"
+  | "export-cleanup-previews";
+
 const api = {
   listHdrFiles: (): Promise<HdrListResponse> =>
     ipcRenderer.invoke("hdr:listFiles"),
@@ -80,6 +86,20 @@ const api = {
     folderPath: string,
   ): Promise<CleanupLegacyPreviewsResult> =>
     ipcRenderer.invoke("hdr:cleanupLegacyPreviews", folderPath),
+  onMenuAction: (
+    callback: (action: RendererMenuAction) => void,
+  ): (() => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      action: RendererMenuAction,
+    ) => {
+      callback(action);
+    };
+    ipcRenderer.on("hdr:menuAction", listener);
+    return () => {
+      ipcRenderer.removeListener("hdr:menuAction", listener);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld("hdrApi", api);

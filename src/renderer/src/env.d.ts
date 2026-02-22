@@ -42,6 +42,12 @@ type CleanupLegacyPreviewsResult = {
   deletedCount: number;
 };
 
+type RendererMenuAction =
+  | "import"
+  | "export-save-exr"
+  | "export-jpeg"
+  | "export-cleanup-previews";
+
 interface Window {
   hdrApi: {
     listHdrFiles: () => Promise<HdrListResponse>;
@@ -67,6 +73,9 @@ interface Window {
     cleanupLegacyPreviews: (
       folderPath: string,
     ) => Promise<CleanupLegacyPreviewsResult>;
+    onMenuAction: (
+      callback: (action: RendererMenuAction) => void,
+    ) => () => void;
   };
 }
 

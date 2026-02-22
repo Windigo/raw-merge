@@ -100,6 +100,47 @@ class HdrMergeApp extends LitElement {
       gap: 8px;
     }
 
+    .import-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(3, 7, 18, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 40;
+      padding: 20px;
+    }
+
+    .import-modal {
+      width: min(920px, 100%);
+      max-height: calc(100dvh - 40px);
+      overflow: auto;
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 12px;
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .import-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .import-modal-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .import-modal-close {
+      padding: 6px 10px;
+      border-radius: 8px;
+    }
+
     .folder-actions {
       display: grid;
       grid-template-columns: 1fr;
@@ -427,7 +468,6 @@ class HdrMergeApp extends LitElement {
       stroke-width: 2;
     }
 
-
     .export-actions {
       margin-top: 10px;
       display: grid;
@@ -560,7 +600,7 @@ class HdrMergeApp extends LitElement {
 
     .viewer {
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr);
       gap: 14px;
       min-height: 0;
       min-width: 0;
@@ -795,6 +835,9 @@ class HdrMergeApp extends LitElement {
   @state()
   private touchedCurvePointIndices: number[] = [];
 
+  @state()
+  private importDialogOpen = false;
+
   private currentPreviewPath = "";
   private previousPreviewPath = "";
 
@@ -828,6 +871,7 @@ class HdrMergeApp extends LitElement {
 
   private curveDragIndex: number | null = null;
   private curveDragPointerId: number | null = null;
+  private disposeMenuActionListener?: () => void;
 
   private async getApi() {
     const maxWaitMs = 1500;
@@ -867,12 +911,15 @@ class HdrMergeApp extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     void this.loadInitialFolder();
+    void this.installMenuActionListener();
   }
 
   disconnectedCallback(): void {
     this.endSplitLineDrag();
     this.endCurveDrag();
     this.revokeThumbnailUrls();
+    this.disposeMenuActionListener?.();
+    this.disposeMenuActionListener = undefined;
     super.disconnectedCallback();
   }
 
@@ -881,31 +928,8 @@ class HdrMergeApp extends LitElement {
       <div class="layout">
         <section class="panel sidebar">
           <h1 class="title">RAW files for HDR merge</h1>
-
-          <section class="folder-browser">
-            <h3 class="settings-title">Folder Browser</h3>
-            <div class="folder-actions">
-              <button
-                class="folder-picker-button"
-                @click=${this.selectFolder}
-                ?disabled=${this.isBusy}
-              >
-                <span class="folder-picker-label"
-                  >${this.folderPickerLabel()}</span
-                >
-                <span class="folder-picker-arrow">▾</span>
-              </button>
-              <button
-                @click=${this.toggleSelectAllFiles}
-                ?disabled=${this.isBusy || this.files.length === 0}
-              >
-                ${this.selected.size === this.files.length
-                  ? "Deselect all"
-                  : "Select all"}
-              </button>
-            </div>
-            ${this.renderFolderTree()}
-          </section>
+          <p class="subtitle">Folder: ${this.folderPickerLabel()}</p>
+          <p class="subtitle">Use menu: Files → Import</p>
 
           ${this.folderPath
             ? html`<div class="export-actions">
@@ -1060,170 +1084,218 @@ class HdrMergeApp extends LitElement {
                 </svg>
                 <div class="curves-overlay">
                   ${this.curveOverlayPoints().map(
-                    (point) => html`<div
-                      class="curves-overlay-marker"
-                      style=${`left:${(point.x * 100).toFixed(3)}%;top:${((1 - point.y) * 100).toFixed(3)}%;`}
-                    >
-                      <span class="curves-overlay-ring"></span>
-                      <span class="curves-overlay-h"></span>
-                      <span class="curves-overlay-v"></span>
-                    </div>`,
+                    (point) =>
+                      html`<div
+                        class="curves-overlay-marker"
+                        style=${`left:${(point.x * 100).toFixed(3)}%;top:${((1 - point.y) * 100).toFixed(3)}%;`}
+                      >
+                        <span class="curves-overlay-ring"></span>
+                        <span class="curves-overlay-h"></span>
+                        <span class="curves-overlay-v"></span>
+                      </div>`,
                   )}
                 </div>
               </div>
             </section>
           </section>
 
-          ${this.mergedOutputPath
-            ? html`<p class="subtitle">
-                Saved EXR: ${this.fileName(this.mergedOutputPath)}
-              </p>`
-            : ""}
-          ${this.mergedOutputPath
-            ? html`<div class="export-actions">
-                <button @click=${this.onSaveMergedAs} ?disabled=${this.isBusy}>
-                  Save merged EXR as…
-                </button>
-                <div class="export-jpeg-row">
-                  <button
-                    @click=${this.onExportProcessedJpeg}
-                    ?disabled=${this.isBusy || !this.hasPreviewToExport()}
-                  >
-                    Export processed JPEG…
-                  </button>
-                  <select
-                    class="export-target-toggle"
-                    .value=${this.exportJpegTarget}
-                    @change=${this.onExportJpegTargetChange}
-                    ?disabled=${this.isBusy ||
-                    (!this.hasExportSource("a") && !this.hasExportSource("b"))}
-                    aria-label="JPEG export target"
-                  >
-                    <option value="a" ?disabled=${!this.hasExportSource("a")}>
-                      A
-                    </option>
-                    <option value="b" ?disabled=${!this.hasExportSource("b")}>
-                      B
-                    </option>
-                  </select>
-                </div>
-              </div>`
-            : ""}
-          ${this.exportStatusMessage
-            ? html`<p class="status-note">${this.exportStatusMessage}</p>`
-            : ""}
           ${this.error ? html`<p class="error">${this.error}</p>` : ""}
         </section>
 
         <section class="viewer">
           <div class="panel preview-panel">${this.renderPreviewCanvas()}</div>
+        </section>
+      </div>
+      ${this.renderImportModal()}
+    `;
+  }
 
-          <div class="settings-grid">
-            <section class="settings-card">
-              <h3 class="settings-title">A Settings</h3>
-              <div class="settings-controls">
-                <label class="settings-row">
-                  <span>Color</span>
-                  <select
-                    .value=${this.colorSpaceA}
-                    @change=${(event: Event) =>
-                      this.onColorSpaceChange("a", event)}
-                    ?disabled=${this.isBusy}
-                    aria-label="A output color space"
-                  >
-                    ${HdrMergeApp.colorOptions.map(
-                      ([value, label]) =>
-                        html`<option value=${value}>${label}</option>`,
-                    )}
-                  </select>
-                </label>
-                <label class="settings-row">
-                  <span>Base</span>
-                  <select
-                    .value=${this.baseFrameA}
-                    @change=${(event: Event) =>
-                      this.onBaseFrameChange("a", event)}
-                    ?disabled=${this.isBusy}
-                    aria-label="A base frame"
-                  >
-                    ${HdrMergeApp.baseOptions.map(
-                      ([value, label]) =>
-                        html`<option value=${value}>${label}</option>`,
-                    )}
-                  </select>
-                </label>
-              </div>
-              <div class="settings-metrics">
-                <span class="settings-metric-line"
-                  >Input span: ${this.formatEv(this.inputSpanStopsA)}</span
-                >
-                <span class="settings-metric-line"
-                  >Effective DR: ${this.formatEv(this.dynamicRangeStopsA)}</span
-                >
-              </div>
-              <button
-                class="settings-merge"
-                @click=${() => this.mergeSelected("a")}
-                ?disabled=${this.isBusy || this.selected.size < 2}
-              >
-                Merge RAW → A
-              </button>
-            </section>
+  private renderMergeSettings(): TemplateResult {
+    return html`<div class="settings-grid">
+      <section class="settings-card">
+        <h3 class="settings-title">A Settings</h3>
+        <div class="settings-controls">
+          <label class="settings-row">
+            <span>Color</span>
+            <select
+              .value=${this.colorSpaceA}
+              @change=${(event: Event) => this.onColorSpaceChange("a", event)}
+              ?disabled=${this.isBusy}
+              aria-label="A output color space"
+            >
+              ${HdrMergeApp.colorOptions.map(
+                ([value, label]) =>
+                  html`<option value=${value}>${label}</option>`,
+              )}
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>Base</span>
+            <select
+              .value=${this.baseFrameA}
+              @change=${(event: Event) => this.onBaseFrameChange("a", event)}
+              ?disabled=${this.isBusy}
+              aria-label="A base frame"
+            >
+              ${HdrMergeApp.baseOptions.map(
+                ([value, label]) =>
+                  html`<option value=${value}>${label}</option>`,
+              )}
+            </select>
+          </label>
+        </div>
+        <div class="settings-metrics">
+          <span class="settings-metric-line"
+            >Input span: ${this.formatEv(this.inputSpanStopsA)}</span
+          >
+          <span class="settings-metric-line"
+            >Effective DR: ${this.formatEv(this.dynamicRangeStopsA)}</span
+          >
+        </div>
+        <button
+          class="settings-merge"
+          @click=${() => this.mergeSelected("a")}
+          ?disabled=${this.isBusy || this.selected.size < 2}
+        >
+          Merge RAW → A
+        </button>
+      </section>
 
-            <section class="settings-card">
-              <h3 class="settings-title">B Settings</h3>
-              <div class="settings-controls">
-                <label class="settings-row">
-                  <span>Color</span>
-                  <select
-                    .value=${this.colorSpaceB}
-                    @change=${(event: Event) =>
-                      this.onColorSpaceChange("b", event)}
-                    ?disabled=${this.isBusy}
-                    aria-label="B output color space"
-                  >
-                    ${HdrMergeApp.colorOptions.map(
-                      ([value, label]) =>
-                        html`<option value=${value}>${label}</option>`,
-                    )}
-                  </select>
-                </label>
-                <label class="settings-row">
-                  <span>Base</span>
-                  <select
-                    .value=${this.baseFrameB}
-                    @change=${(event: Event) =>
-                      this.onBaseFrameChange("b", event)}
-                    ?disabled=${this.isBusy}
-                    aria-label="B base frame"
-                  >
-                    ${HdrMergeApp.baseOptions.map(
-                      ([value, label]) =>
-                        html`<option value=${value}>${label}</option>`,
-                    )}
-                  </select>
-                </label>
-              </div>
-              <div class="settings-metrics">
-                <span class="settings-metric-line"
-                  >Input span: ${this.formatEv(this.inputSpanStopsB)}</span
-                >
-                <span class="settings-metric-line"
-                  >Effective DR: ${this.formatEv(this.dynamicRangeStopsB)}</span
-                >
-              </div>
-              <button
-                class="settings-merge"
-                @click=${() => this.mergeSelected("b")}
-                ?disabled=${this.isBusy || this.selected.size < 2}
-              >
-                Merge RAW → B
-              </button>
-            </section>
+      <section class="settings-card">
+        <h3 class="settings-title">B Settings</h3>
+        <div class="settings-controls">
+          <label class="settings-row">
+            <span>Color</span>
+            <select
+              .value=${this.colorSpaceB}
+              @change=${(event: Event) => this.onColorSpaceChange("b", event)}
+              ?disabled=${this.isBusy}
+              aria-label="B output color space"
+            >
+              ${HdrMergeApp.colorOptions.map(
+                ([value, label]) =>
+                  html`<option value=${value}>${label}</option>`,
+              )}
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>Base</span>
+            <select
+              .value=${this.baseFrameB}
+              @change=${(event: Event) => this.onBaseFrameChange("b", event)}
+              ?disabled=${this.isBusy}
+              aria-label="B base frame"
+            >
+              ${HdrMergeApp.baseOptions.map(
+                ([value, label]) =>
+                  html`<option value=${value}>${label}</option>`,
+              )}
+            </select>
+          </label>
+        </div>
+        <div class="settings-metrics">
+          <span class="settings-metric-line"
+            >Input span: ${this.formatEv(this.inputSpanStopsB)}</span
+          >
+          <span class="settings-metric-line"
+            >Effective DR: ${this.formatEv(this.dynamicRangeStopsB)}</span
+          >
+        </div>
+        <button
+          class="settings-merge"
+          @click=${() => this.mergeSelected("b")}
+          ?disabled=${this.isBusy || this.selected.size < 2}
+        >
+          Merge RAW → B
+        </button>
+      </section>
+    </div>`;
+  }
+
+  private async installMenuActionListener(): Promise<void> {
+    try {
+      const api = await this.getApi();
+      this.disposeMenuActionListener?.();
+      this.disposeMenuActionListener = api.onMenuAction((action) => {
+        if (action === "import") {
+          this.importDialogOpen = true;
+          return;
+        }
+
+        if (action === "export-save-exr") {
+          void this.onSaveMergedAs();
+          return;
+        }
+
+        if (action === "export-jpeg") {
+          void this.onExportProcessedJpeg();
+          return;
+        }
+
+        if (action === "export-cleanup-previews") {
+          void this.onCleanupLegacyPreviews();
+        }
+      });
+    } catch {
+      this.disposeMenuActionListener = undefined;
+    }
+  }
+
+  private renderImportModal(): TemplateResult | string {
+    if (!this.importDialogOpen) {
+      return "";
+    }
+
+    return html`
+      <div class="import-modal-backdrop" @click=${this.onImportBackdropClick}>
+        <section class="import-modal" @click=${this.onImportModalClick}>
+          <div class="import-modal-header">
+            <h2 class="import-modal-title">Import RAW files</h2>
+            <button class="import-modal-close" @click=${this.closeImportDialog}>
+              Close
+            </button>
           </div>
+
+          <section class="folder-browser">
+            <h3 class="settings-title">Folder Browser</h3>
+            <div class="folder-actions">
+              <button
+                class="folder-picker-button"
+                @click=${this.selectFolder}
+                ?disabled=${this.isBusy}
+              >
+                <span class="folder-picker-label"
+                  >${this.folderPickerLabel()}</span
+                >
+                <span class="folder-picker-arrow">▾</span>
+              </button>
+              <button
+                @click=${this.toggleSelectAllFiles}
+                ?disabled=${this.isBusy || this.files.length === 0}
+              >
+                ${this.selected.size === this.files.length
+                  ? "Deselect all"
+                  : "Select all"}
+              </button>
+            </div>
+            ${this.renderFolderTree()}
+          </section>
+          ${this.renderMergeSettings()}
         </section>
       </div>
     `;
+  }
+
+  private closeImportDialog = (): void => {
+    this.importDialogOpen = false;
+  };
+
+  private onImportBackdropClick = (): void => {
+    this.closeImportDialog();
+  };
+
+  private onImportModalClick(event: Event): void {
+    event.stopPropagation();
   }
 
   private async loadInitialFolder(): Promise<void> {
@@ -1453,6 +1525,7 @@ class HdrMergeApp extends LitElement {
         return;
       }
       this.applyFileListResult(result);
+      this.importDialogOpen = false;
       localStorage.setItem(LAST_FOLDER_STORAGE_KEY, result.folder);
     } catch (error) {
       this.error =
@@ -1471,6 +1544,7 @@ class HdrMergeApp extends LitElement {
         return;
       }
       this.applyFileListResult(result);
+      this.importDialogOpen = false;
       localStorage.setItem(LAST_FOLDER_STORAGE_KEY, result.folder);
     } catch (error) {
       this.error =
@@ -2435,7 +2509,10 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    this.curveDragIndex = this.closestCurvePointIndex(normalized.x, normalized.y);
+    this.curveDragIndex = this.closestCurvePointIndex(
+      normalized.x,
+      normalized.y,
+    );
     this.markCurvePointTouched(this.curveDragIndex);
     this.curveDragPointerId = event.pointerId;
     this.curveCursorMode = "dragging";
@@ -2690,10 +2767,14 @@ class HdrMergeApp extends LitElement {
       .sort((left, right) => left - right);
 
     const indices =
-      touchedInterior.length > 0 ? [0, ...touchedInterior, lastIndex] : [0, lastIndex];
+      touchedInterior.length > 0
+        ? [0, ...touchedInterior, lastIndex]
+        : [0, lastIndex];
 
     return {
-      xs: indices.map((index) => this.curveControlXsCurrent[index] ?? index / lastIndex),
+      xs: indices.map(
+        (index) => this.curveControlXsCurrent[index] ?? index / lastIndex,
+      ),
       ys: indices.map((index) => {
         const x = this.curveControlXsCurrent[index] ?? index / lastIndex;
         return this.curveControlYs[index] ?? x;
