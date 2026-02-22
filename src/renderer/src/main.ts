@@ -395,21 +395,6 @@ class HdrMergeApp extends LitElement {
       width: 2px;
     }
 
-    .curves-overlay-label {
-      position: absolute;
-      left: 16px;
-      top: -14px;
-      font-size: 10px;
-      font-weight: 700;
-      color: #22c55e;
-      text-shadow:
-        -1px -1px 0 #000,
-        1px -1px 0 #000,
-        -1px 1px 0 #000,
-        1px 1px 0 #000;
-      white-space: nowrap;
-    }
-
     .curves-grid-line {
       stroke: #1f2937;
       stroke-width: 1;
@@ -442,39 +427,6 @@ class HdrMergeApp extends LitElement {
       stroke-width: 2;
     }
 
-    .curves-grab-indicator-cross-under {
-      stroke: #000000;
-      stroke-width: 5;
-      vector-effect: non-scaling-stroke;
-      pointer-events: none;
-      opacity: 1;
-    }
-
-    .curves-grab-indicator-cross {
-      stroke: #ef4444;
-      stroke-width: 3;
-      vector-effect: non-scaling-stroke;
-      pointer-events: none;
-      opacity: 1;
-    }
-
-    .curves-grab-indicator-label {
-      fill: #22c55e;
-      stroke: #000000;
-      stroke-width: 1;
-      paint-order: stroke;
-      font-size: 10px;
-      font-weight: 700;
-      pointer-events: none;
-      user-select: none;
-    }
-
-    .curves-debug {
-      font-size: 11px;
-      color: #86efac;
-      opacity: 0.95;
-      font-variant-numeric: tabular-nums;
-    }
 
     .export-actions {
       margin-top: 10px;
@@ -840,6 +792,9 @@ class HdrMergeApp extends LitElement {
   @state()
   private curveCursorMode: "idle" | "hot" | "dragging" = "idle";
 
+  @state()
+  private touchedCurvePointIndices: number[] = [];
+
   private currentPreviewPath = "";
   private previousPreviewPath = "";
 
@@ -873,7 +828,6 @@ class HdrMergeApp extends LitElement {
 
   private curveDragIndex: number | null = null;
   private curveDragPointerId: number | null = null;
-  private readonly maxCurvePoints = 12;
 
   private async getApi() {
     const maxWaitMs = 1500;
@@ -1113,16 +1067,9 @@ class HdrMergeApp extends LitElement {
                       <span class="curves-overlay-ring"></span>
                       <span class="curves-overlay-h"></span>
                       <span class="curves-overlay-v"></span>
-                      <span class="curves-overlay-label">${point.id}</span>
                     </div>`,
                   )}
                 </div>
-              </div>
-              <div class="curves-debug">
-                Markers: ${this.curveOverlayPoints().length}
-                ${this.curveOverlayPoints().length > 0
-                  ? html` · active points move with drag`
-                  : ""}
               </div>
             </section>
           </section>
@@ -1573,6 +1520,7 @@ class HdrMergeApp extends LitElement {
     this.previousPreviewSettingsLabel = "";
     this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
     this.curveControlYs = [...HdrMergeApp.curveControlXs];
+    this.touchedCurvePointIndices = [];
     this.curveCursorMode = "idle";
     this.exportJpegTarget = "b";
     this.currentPreviewPath = "";
@@ -2448,12 +2396,22 @@ class HdrMergeApp extends LitElement {
   }
 
   private curvePathD(): string {
-    return this.curveControlXsCurrent.map((x, index) => {
-      const y = this.curveControlYs[index] ?? x;
-      const px = x * 220;
+    const { xs, ys } = this.activeCurveControls();
+    if (xs.length === 0) {
+      return "";
+    }
+
+    const samples = 128;
+    const parts: string[] = [];
+    for (let index = 0; index <= samples; index += 1) {
+      const t = index / samples;
+      const y = this.sampleMonotonicCurve(xs, ys, t);
+      const px = t * 220;
       const py = (1 - y) * 140;
-      return `${index === 0 ? "M" : "L"} ${px} ${py}`;
-    }).join(" ");
+      parts.push(`${index === 0 ? "M" : "L"} ${px} ${py}`);
+    }
+
+    return parts.join(" ");
   }
 
   private onCurveEditorPointerDown(event: PointerEvent): void {
@@ -2461,20 +2419,24 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    const svg = this.renderRoot.querySelector("#curveEditor") as
-      | SVGSVGElement
-      | null;
+    const svg = this.renderRoot.querySelector(
+      "#curveEditor",
+    ) as SVGSVGElement | null;
     if (!svg) {
       return;
     }
 
-    const normalized = this.clientToCurveNormalized(svg, event.clientX, event.clientY);
+    const normalized = this.clientToCurveNormalized(
+      svg,
+      event.clientX,
+      event.clientY,
+    );
     if (!normalized) {
       return;
     }
 
-    const { x: normalizedX, y: normalizedY } = normalized;
-    this.curveDragIndex = this.pickOrInsertCurvePoint(normalizedX, normalizedY);
+    this.curveDragIndex = this.closestCurvePointIndex(normalized.x, normalized.y);
+    this.markCurvePointTouched(this.curveDragIndex);
     this.curveDragPointerId = event.pointerId;
     this.curveCursorMode = "dragging";
     window.addEventListener("pointermove", this.onCurveDragPointerMove);
@@ -2489,20 +2451,27 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    const svg = this.renderRoot.querySelector("#curveEditor") as
-      | SVGSVGElement
-      | null;
+    const svg = this.renderRoot.querySelector(
+      "#curveEditor",
+    ) as SVGSVGElement | null;
     if (!svg) {
       return;
     }
 
-    const normalized = this.clientToCurveNormalized(svg, event.clientX, event.clientY);
+    const normalized = this.clientToCurveNormalized(
+      svg,
+      event.clientX,
+      event.clientY,
+    );
     if (!normalized) {
       this.curveCursorMode = "idle";
       return;
     }
 
-    this.curveCursorMode = this.isNearCurveGrabTarget(normalized.x, normalized.y)
+    this.curveCursorMode = this.isNearCurveGrabTarget(
+      normalized.x,
+      normalized.y,
+    )
       ? "hot"
       : "idle";
   }
@@ -2555,9 +2524,9 @@ class HdrMergeApp extends LitElement {
       return;
     }
 
-    const svg = this.renderRoot.querySelector("#curveEditor") as
-      | SVGSVGElement
-      | null;
+    const svg = this.renderRoot.querySelector(
+      "#curveEditor",
+    ) as SVGSVGElement | null;
     if (!svg) {
       return;
     }
@@ -2614,24 +2583,40 @@ class HdrMergeApp extends LitElement {
   private onResetCurves(): void {
     this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
     this.curveControlYs = [...HdrMergeApp.curveControlXs];
+    this.touchedCurvePointIndices = [];
     void this.renderPreviewIfPossible();
   }
 
-  private curveOverlayPoints(): Array<{ id: number; x: number; y: number }> {
-    if (this.curveControlXsCurrent.length <= 2) {
+  private curveOverlayPoints(): Array<{ x: number; y: number }> {
+    if (this.touchedCurvePointIndices.length === 0) {
       return [];
     }
 
-    return this.curveControlXsCurrent
-      .slice(1, -1)
-      .map((x, offset) => {
-        const index = offset + 1;
-        return {
-          id: index,
-          x,
-          y: this.curveControlYs[index] ?? x,
-        };
+    const lastIndex = this.curveControlXsCurrent.length - 1;
+    return this.touchedCurvePointIndices
+      .filter((index) => index > 0 && index < lastIndex)
+      .map((index) => {
+        const x = this.curveControlXsCurrent[index] ?? 0;
+        const y = this.curveControlYs[index] ?? x;
+        return { x, y };
       });
+  }
+
+  private markCurvePointTouched(index: number | null): void {
+    if (index === null) {
+      return;
+    }
+
+    const lastIndex = this.curveControlXsCurrent.length - 1;
+    if (index <= 0 || index >= lastIndex) {
+      return;
+    }
+
+    if (this.touchedCurvePointIndices.includes(index)) {
+      return;
+    }
+
+    this.touchedCurvePointIndices = [...this.touchedCurvePointIndices, index];
   }
 
   private curveCursorStyle(): string {
@@ -2647,93 +2632,16 @@ class HdrMergeApp extends LitElement {
   }
 
   private isNearCurveGrabTarget(x: number, y: number): boolean {
-    const nearPoint = this.curveControlXsCurrent.some((pointX, index) => {
+    return this.curveControlXsCurrent.some((pointX, index) => {
       const pointY = this.curveControlYs[index] ?? pointX;
       return Math.hypot(pointX - x, pointY - y) <= 0.07;
     });
-
-    if (nearPoint) {
-      return true;
-    }
-
-    for (let index = 0; index < this.curveControlXsCurrent.length - 1; index += 1) {
-      const x0 = this.curveControlXsCurrent[index];
-      const y0 = this.curveControlYs[index] ?? x0;
-      const x1 = this.curveControlXsCurrent[index + 1];
-      const y1 = this.curveControlYs[index + 1] ?? x1;
-      const distance = this.distanceToLineSegment(x, y, x0, y0, x1, y1);
-      if (distance <= 0.045) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
-  private distanceToLineSegment(
-    px: number,
-    py: number,
-    ax: number,
-    ay: number,
-    bx: number,
-    by: number,
+  private closestCurvePointIndex(
+    normalizedX: number,
+    normalizedY: number,
   ): number {
-    const vx = bx - ax;
-    const vy = by - ay;
-    const wx = px - ax;
-    const wy = py - ay;
-    const lenSq = vx * vx + vy * vy;
-    if (lenSq <= 1e-12) {
-      return Math.hypot(px - ax, py - ay);
-    }
-
-    const t = Math.max(0, Math.min(1, (wx * vx + wy * vy) / lenSq));
-    const cx = ax + t * vx;
-    const cy = ay + t * vy;
-    return Math.hypot(px - cx, py - cy);
-  }
-
-  private pickOrInsertCurvePoint(normalizedX: number, normalizedY: number): number {
-    const nearestIndex = this.closestCurvePointIndex(normalizedX, normalizedY);
-    const nearestX = this.curveControlXsCurrent[nearestIndex] ?? 0;
-    const nearestY = this.curveControlYs[nearestIndex] ?? nearestX;
-    const distance = Math.hypot(nearestX - normalizedX, nearestY - normalizedY);
-    const pickThreshold = 0.07;
-
-    if (distance <= pickThreshold || this.curveControlXsCurrent.length >= this.maxCurvePoints) {
-      return nearestIndex;
-    }
-
-    const nextXs = [...this.curveControlXsCurrent];
-    const nextYs = [...this.curveControlYs];
-    const insertX = Math.max(0.01, Math.min(0.99, normalizedX));
-    const insertY = Math.max(0, Math.min(1, normalizedY));
-
-    let insertIndex = nextXs.length - 1;
-    for (let index = 1; index < nextXs.length; index += 1) {
-      if (insertX < nextXs[index]) {
-        insertIndex = index;
-        break;
-      }
-    }
-
-    const minGap = 0.03;
-    const leftBound = nextXs[insertIndex - 1] + minGap;
-    const rightBound = nextXs[insertIndex] - minGap;
-    if (leftBound >= rightBound) {
-      return nearestIndex;
-    }
-
-    const clampedInsertX = Math.max(leftBound, Math.min(rightBound, insertX));
-    nextXs.splice(insertIndex, 0, clampedInsertX);
-    nextYs.splice(insertIndex, 0, insertY);
-
-    this.curveControlXsCurrent = nextXs;
-    this.curveControlYs = nextYs;
-    return insertIndex;
-  }
-
-  private closestCurvePointIndex(normalizedX: number, normalizedY: number): number {
     let bestIndex = 0;
     let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -2759,29 +2667,137 @@ class HdrMergeApp extends LitElement {
 
   private buildCurveLut(): Uint8ClampedArray {
     const lut = new Uint8ClampedArray(256);
-    const xs = this.curveControlXsCurrent;
-    const ys = this.curveControlYs;
+    const { xs, ys } = this.activeCurveControls();
 
     for (let value = 0; value < 256; value += 1) {
       const input = value / 255;
-      let segment = xs.length - 2;
-      for (let index = 0; index < xs.length - 1; index += 1) {
-        if (input <= xs[index + 1]) {
-          segment = index;
-          break;
-        }
-      }
-
-      const x0 = xs[segment];
-      const x1 = xs[segment + 1];
-      const y0 = ys[segment] ?? x0;
-      const y1 = ys[segment + 1] ?? x1;
-      const t = x1 === x0 ? 0 : (input - x0) / (x1 - x0);
-      const output = y0 + (y1 - y0) * t;
+      const output = this.sampleMonotonicCurve(xs, ys, input);
       lut[value] = Math.round(Math.max(0, Math.min(1, output)) * 255);
     }
 
     return lut;
+  }
+
+  private activeCurveControls(): { xs: number[]; ys: number[] } {
+    const pointCount = this.curveControlXsCurrent.length;
+    if (pointCount === 0) {
+      return { xs: [], ys: [] };
+    }
+
+    const lastIndex = pointCount - 1;
+    const touchedInterior = [...new Set(this.touchedCurvePointIndices)]
+      .filter((index) => index > 0 && index < lastIndex)
+      .sort((left, right) => left - right);
+
+    const indices =
+      touchedInterior.length > 0 ? [0, ...touchedInterior, lastIndex] : [0, lastIndex];
+
+    return {
+      xs: indices.map((index) => this.curveControlXsCurrent[index] ?? index / lastIndex),
+      ys: indices.map((index) => {
+        const x = this.curveControlXsCurrent[index] ?? index / lastIndex;
+        return this.curveControlYs[index] ?? x;
+      }),
+    };
+  }
+
+  private sampleMonotonicCurve(xs: number[], ys: number[], x: number): number {
+    const pointCount = xs.length;
+    if (pointCount === 0) {
+      return x;
+    }
+
+    if (pointCount === 1) {
+      return ys[0] ?? x;
+    }
+
+    const clampedX = Math.max(xs[0], Math.min(xs[pointCount - 1], x));
+    const tangents = this.computeMonotonicTangents(xs, ys);
+
+    let segment = pointCount - 2;
+    for (let index = 0; index < pointCount - 1; index += 1) {
+      if (clampedX <= xs[index + 1]) {
+        segment = index;
+        break;
+      }
+    }
+
+    const x0 = xs[segment];
+    const x1 = xs[segment + 1];
+    const y0 = ys[segment];
+    const y1 = ys[segment + 1];
+    const deltaX = x1 - x0;
+    if (deltaX <= 1e-8) {
+      return y0;
+    }
+
+    const t = (clampedX - x0) / deltaX;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const h00 = 2 * t3 - 3 * t2 + 1;
+    const h10 = t3 - 2 * t2 + t;
+    const h01 = -2 * t3 + 3 * t2;
+    const h11 = t3 - t2;
+    const m0 = tangents[segment];
+    const m1 = tangents[segment + 1];
+    const y = h00 * y0 + h10 * deltaX * m0 + h01 * y1 + h11 * deltaX * m1;
+    return Math.max(0, Math.min(1, y));
+  }
+
+  private computeMonotonicTangents(xs: number[], ys: number[]): number[] {
+    const pointCount = xs.length;
+    if (pointCount <= 1) {
+      return [0];
+    }
+
+    const deltaX: number[] = [];
+    const slopes: number[] = [];
+    for (let index = 0; index < pointCount - 1; index += 1) {
+      const dx = xs[index + 1] - xs[index];
+      deltaX.push(dx);
+      slopes.push(dx > 0 ? (ys[index + 1] - ys[index]) / dx : 0);
+    }
+
+    const tangents = new Array<number>(pointCount).fill(0);
+    tangents[0] = slopes[0];
+    tangents[pointCount - 1] = slopes[pointCount - 2];
+
+    for (let index = 1; index < pointCount - 1; index += 1) {
+      const prev = slopes[index - 1];
+      const next = slopes[index];
+      if (
+        Math.abs(prev) <= 1e-8 ||
+        Math.abs(next) <= 1e-8 ||
+        prev * next <= 0
+      ) {
+        tangents[index] = 0;
+        continue;
+      }
+
+      const w1 = 2 * deltaX[index] + deltaX[index - 1];
+      const w2 = deltaX[index] + 2 * deltaX[index - 1];
+      tangents[index] = (w1 + w2) / (w1 / prev + w2 / next);
+    }
+
+    for (let index = 0; index < pointCount - 1; index += 1) {
+      const slope = slopes[index];
+      if (Math.abs(slope) <= 1e-8) {
+        tangents[index] = 0;
+        tangents[index + 1] = 0;
+        continue;
+      }
+
+      const alpha = tangents[index] / slope;
+      const beta = tangents[index + 1] / slope;
+      const norm = alpha * alpha + beta * beta;
+      if (norm > 9) {
+        const scale = 3 / Math.sqrt(norm);
+        tangents[index] = scale * alpha * slope;
+        tangents[index + 1] = scale * beta * slope;
+      }
+    }
+
+    return tangents;
   }
 
   private hasPreviewToExport(): boolean {
