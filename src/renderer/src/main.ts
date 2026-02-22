@@ -317,21 +317,19 @@ class HdrMergeApp extends LitElement {
       min-width: 0;
       flex: 0 0 auto;
       margin-top: auto;
-      position: sticky;
-      bottom: 0;
-      z-index: 1;
     }
 
     .settings-card {
       border: 1px solid #374151;
       border-radius: 10px;
-      padding: 10px;
+      padding: 8px;
+      padding-bottom: 16px;
       background: #111827;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
       min-width: 0;
-      height: 152px;
+      height: 164px;
     }
 
     .settings-title {
@@ -350,13 +348,38 @@ class HdrMergeApp extends LitElement {
 
     .settings-row {
       display: grid;
-      gap: 6px;
+      gap: 4px;
       min-width: 0;
+    }
+
+    .settings-metrics {
+      margin-top: 6px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      font-size: 11px;
+      line-height: 1.2;
+      opacity: 0.9;
+    }
+
+    .settings-metric-line {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .settings-merge {
       margin-top: auto;
+      margin-bottom: 6px;
       width: 100%;
+      background: #e9800a;
+      border-color: transparent;
+      color: #3b1d00;
+      font-weight: 600;
+    }
+
+    .settings-merge:hover:not(:disabled) {
+      background: #ffc889;
     }
 
     button {
@@ -379,7 +402,7 @@ class HdrMergeApp extends LitElement {
       border: 1px solid #4b5563;
       color: #e5e7eb;
       background: #111827;
-      padding: 8px 12px;
+      padding: 6px 10px;
       border-radius: 8px;
       font: inherit;
       max-width: 100%;
@@ -393,28 +416,28 @@ class HdrMergeApp extends LitElement {
     }
 
     .viewer {
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
       gap: 14px;
       min-height: 0;
       min-width: 0;
       height: 100%;
-      overflow: visible;
+      overflow: hidden;
     }
 
     .preview-panel {
       display: flex;
       flex-direction: column;
-      flex: 1 1 auto;
       min-height: 0;
       min-width: 0;
+      overflow: hidden;
     }
 
     .preview-canvas-wrap {
       position: relative;
       width: 100%;
       max-width: 100%;
-      flex: 1 1 auto;
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -542,6 +565,18 @@ class HdrMergeApp extends LitElement {
 
   @state()
   private splitPercent = 50;
+
+  @state()
+  private dynamicRangeStopsA?: number;
+
+  @state()
+  private dynamicRangeStopsB?: number;
+
+  @state()
+  private inputSpanStopsA?: number;
+
+  @state()
+  private inputSpanStopsB?: number;
 
   @state()
   private singleViewTarget: "a" | "b" = "b";
@@ -742,6 +777,14 @@ class HdrMergeApp extends LitElement {
                   </select>
                 </label>
               </div>
+              <div class="settings-metrics">
+                <span class="settings-metric-line"
+                  >Input span: ${this.formatEv(this.inputSpanStopsA)}</span
+                >
+                <span class="settings-metric-line"
+                  >Effective DR: ${this.formatEv(this.dynamicRangeStopsA)}</span
+                >
+              </div>
               <button
                 class="settings-merge"
                 @click=${() => this.mergeSelected("a")}
@@ -784,6 +827,14 @@ class HdrMergeApp extends LitElement {
                     )}
                   </select>
                 </label>
+              </div>
+              <div class="settings-metrics">
+                <span class="settings-metric-line"
+                  >Input span: ${this.formatEv(this.inputSpanStopsB)}</span
+                >
+                <span class="settings-metric-line"
+                  >Effective DR: ${this.formatEv(this.dynamicRangeStopsB)}</span
+                >
               </div>
               <button
                 class="settings-merge"
@@ -1130,6 +1181,10 @@ class HdrMergeApp extends LitElement {
     this.previousPreviewSettingsLabel = "";
     this.currentPreviewPath = "";
     this.previousPreviewPath = "";
+    this.dynamicRangeStopsA = undefined;
+    this.dynamicRangeStopsB = undefined;
+    this.inputSpanStopsA = undefined;
+    this.inputSpanStopsB = undefined;
     this.splitPercent = 50;
     this.endSplitLineDrag();
     this.disposeBitmaps();
@@ -1207,12 +1262,16 @@ class HdrMergeApp extends LitElement {
       if (target === "a") {
         this.previousPreviewPath = previewPath;
         this.previousPreviewSettingsLabel = settingsLabel;
+        this.dynamicRangeStopsA = merged.dynamicRangeStops;
+        this.inputSpanStopsA = merged.inputSpanStops;
         this.previousBitmap = await this.loadPreviewBitmap(
           this.previousPreviewPath,
         );
       } else {
         this.currentPreviewPath = previewPath;
         this.previewSettingsLabel = settingsLabel;
+        this.dynamicRangeStopsB = merged.dynamicRangeStops;
+        this.inputSpanStopsB = merged.inputSpanStops;
         this.currentBitmap = await this.loadPreviewBitmap(
           this.currentPreviewPath,
         );
@@ -1261,6 +1320,10 @@ class HdrMergeApp extends LitElement {
     } else {
       this.baseFrameB = nextValue;
     }
+  }
+
+  private formatEv(value?: number): string {
+    return Number.isFinite(value) ? `${value?.toFixed(2)} EV` : "—";
   }
 
   private async loadPreviewBitmap(previewPath: string): Promise<ImageBitmap> {

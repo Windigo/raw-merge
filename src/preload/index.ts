@@ -10,6 +10,8 @@ type MergeRawResponse = {
   previewPath?: string;
   width: number;
   height: number;
+  dynamicRangeStops?: number;
+  inputSpanStops?: number;
 };
 
 type MergeOptions = {

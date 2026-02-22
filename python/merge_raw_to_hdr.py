@@ -123,6 +123,35 @@ def tonemap_preview_ldr(hdr_rgb: np.ndarray) -> np.ndarray:
     return (srgb * 255.0).astype(np.uint8)
 
 
+def estimate_dynamic_range_stops(hdr_rgb: np.ndarray) -> float:
+    hdr = np.clip(hdr_rgb.astype(np.float32), 0.0, None)
+    luminance = (
+        0.2126 * hdr[:, :, 0] + 0.7152 * hdr[:, :, 1] + 0.0722 * hdr[:, :, 2]
+    )
+    valid = luminance[np.isfinite(luminance) & (luminance > 0)]
+    if valid.size < 2:
+        return 0.0
+
+    low = float(np.percentile(valid, 0.5))
+    high = float(np.percentile(valid, 99.5))
+    if high <= 0:
+        return 0.0
+
+    safe_low = max(low, 1e-6)
+    stops = np.log2(high / safe_low)
+    return float(max(0.0, stops))
+
+
+def estimate_input_span_stops(exposure_times: np.ndarray) -> float:
+    valid = exposure_times[np.isfinite(exposure_times) & (exposure_times > 0)]
+    if valid.size < 2:
+        return 0.0
+
+    low = float(np.min(valid))
+    high = float(np.max(valid))
+    return float(max(0.0, np.log2(high / max(low, 1e-6))))
+
+
 def get_base_index(images: List[np.ndarray], base_frame: str) -> int:
     means = [float(np.mean(img.astype(np.float32))) for img in images]
     sorted_indices = np.argsort(np.asarray(means, dtype=np.float32))
@@ -153,7 +182,7 @@ def merge_to_hdr(
     preview_path: str | None,
     color_space: str,
     base_frame: str,
-) -> Tuple[int, int]:
+) -> Tuple[int, int, float, float]:
     images: List[np.ndarray] = []
     exposures: List[float] = []
 
@@ -173,6 +202,8 @@ def merge_to_hdr(
     if np.allclose(times, times[0]):
         times = infer_exposures_from_brightness(aligned)
 
+    input_span_stops = estimate_input_span_stops(times)
+
     base_index = get_base_index(aligned, base_frame)
 
     base_targets = {
@@ -185,6 +216,7 @@ def merge_to_hdr(
     merge_debevec = cv2.createMergeDebevec()
     hdr_rgb = merge_debevec.process(aligned, times=times)
     hdr_rgb = normalize_hdr_luminance(hdr_rgb, target_log_avg=target_log_avg)
+    dynamic_range_stops = estimate_dynamic_range_stops(hdr_rgb)
 
     hdr_bgr_for_cv = cv2.cvtColor(hdr_rgb, cv2.COLOR_RGB2BGR)
 
@@ -199,7 +231,7 @@ def merge_to_hdr(
         if not preview_ok:
             raise RuntimeError(f"Failed to write preview output: {preview_path}")
 
-    return first_w, first_h
+    return first_w, first_h, dynamic_range_stops, input_span_stops
 
 
 def parse_args() -> argparse.Namespace:
@@ -238,7 +270,7 @@ def main() -> int:
     if len(file_paths) < 2:
         raise ValueError("Need at least two RAW files")
 
-    width, height = merge_to_hdr(
+    width, height, dynamic_range_stops, input_span_stops = merge_to_hdr(
         file_paths,
         output_path,
         preview_path,
@@ -252,6 +284,8 @@ def main() -> int:
                 "previewPath": preview_path,
                 "width": width,
                 "height": height,
+                "dynamicRangeStops": dynamic_range_stops,
+                "inputSpanStops": input_span_stops,
             }
         )
     )
