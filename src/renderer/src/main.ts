@@ -12,6 +12,8 @@ const LAST_FOLDER_STORAGE_KEY = "hdr-merge:last-folder";
 @customElement("hdr-merge-app")
 class HdrMergeApp extends LitElement {
   private static readonly curveControlXs = [0, 0.25, 0.5, 0.75, 1] as const;
+  private static readonly histogramBinCount = 32;
+  private static readonly curveBackdropHistogramBinCount = 64;
 
   private static readonly colorOptions = [
     ["srgb", "sRGB"],
@@ -353,6 +355,13 @@ class HdrMergeApp extends LitElement {
       border-radius: 6px;
     }
 
+    .preview-color-reset {
+      justify-self: end;
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
     .curves-panel {
       border: 1px solid #374151;
       border-radius: 8px;
@@ -651,6 +660,28 @@ class HdrMergeApp extends LitElement {
       min-width: 1px;
       border-top-left-radius: 1px;
       border-top-right-radius: 1px;
+    }
+
+    .histogram-bin-group {
+      flex: 1 1 auto;
+      min-width: 2px;
+      height: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      align-items: end;
+    }
+
+    .histogram-bar-r {
+      background: rgba(239, 68, 68, 0.85);
+    }
+
+    .histogram-bar-g {
+      background: rgba(34, 197, 94, 0.85);
+    }
+
+    .histogram-bar-b {
+      background: rgba(59, 130, 246, 0.85);
     }
 
     .curves-point {
@@ -1016,6 +1047,12 @@ class HdrMergeApp extends LitElement {
   private previewSaturation = 0;
 
   @state()
+  private previewTint = 0;
+
+  @state()
+  private previewVibrance = 0;
+
+  @state()
   private previewRed = 0;
 
   @state()
@@ -1050,6 +1087,9 @@ class HdrMergeApp extends LitElement {
 
   @state()
   private curveHistogramBins: number[] = [];
+
+  @state()
+  private curveBackdropHistogramBins: number[] = [];
 
   @state()
   private curveHistogramBinsR: number[] = [];
@@ -1126,6 +1166,11 @@ class HdrMergeApp extends LitElement {
 
   private hasCompareSources(): boolean {
     return Boolean(this.previousPreviewPath && this.currentPreviewPath);
+  }
+
+  private histogramBinIndex(value: number, binCount: number): number {
+    const maxIndex = Math.max(0, binCount - 1);
+    return Math.min(maxIndex, Math.max(0, Math.floor((value / 255) * maxIndex)));
   }
 
   private folderPickerLabel(): string {
@@ -1257,6 +1302,47 @@ class HdrMergeApp extends LitElement {
               />
             </label>
             <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Tint</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewTint)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewTint)}
+                @input=${this.onPreviewTintInput}
+                @change=${this.onPreviewAdjustmentCommit}
+                aria-label="Preview tint"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Vibrance</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewVibrance)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewVibrance)}
+                @input=${this.onPreviewVibranceInput}
+                @change=${this.onPreviewAdjustmentCommit}
+                aria-label="Preview vibrance"
+              />
+            </label>
+            <button
+              class="preview-color-reset"
+              @click=${this.onPreviewColorReset}
+              ?disabled=${this.isBusy}
+            >
+              Reset Color
+            </button>
+            <label class="preview-adjustment-row">
               <span class="preview-adjustment-label">Preview Red</span>
               <span class="preview-adjustment-value"
                 >${this.formatSignedPercent(this.previewRed)}</span
@@ -1335,20 +1421,17 @@ class HdrMergeApp extends LitElement {
               </div>
               <div class="curves-editor-wrap">
                 <div class="curves-histogram-backdrop">
-                  ${this.curveHistogramBins.map((value, index) => {
-                    const red = Math.round(
-                      24 + (this.curveHistogramBinsR[index] ?? 0) * 220,
-                    );
-                    const green = Math.round(
-                      24 + (this.curveHistogramBinsG[index] ?? 0) * 220,
-                    );
-                    const blue = Math.round(
-                      24 + (this.curveHistogramBinsB[index] ?? 0) * 220,
+                  ${this.curveBackdropHistogramBins.map((value, index) => {
+                    const tone = Math.round(
+                      28 +
+                        (index /
+                          Math.max(1, this.curveBackdropHistogramBins.length - 1)) *
+                          220,
                     );
                     const heightPercent = Math.max(2, Math.min(100, value * 100));
                     return html`<div
                       class="curves-histogram-backdrop-bar"
-                      style=${`height:${heightPercent.toFixed(2)}%;background:rgb(${red},${green},${blue});`}
+                      style=${`height:${heightPercent.toFixed(2)}%;background:rgb(${tone},${tone},${tone});`}
                     ></div>`;
                   })}
                 </div>
@@ -1591,14 +1674,37 @@ class HdrMergeApp extends LitElement {
       </div>
       <div class=${`histogram-canvas${hasBins ? "" : " histogram-canvas-empty"}`}>
         ${hasBins
-          ? displayBins.map((value, index) => {
-              const style = this.histogramPanelBarStyle(index, value);
-              const heightPercent = Math.max(2, Math.min(100, value * 100));
-              return html`<div
-                class="histogram-bar"
-                style=${`height:${heightPercent.toFixed(2)}%;${style}`}
-              ></div>`;
-            })
+          ? this.histogramChannelMode === "rgb"
+            ? displayBins.map((value, index) => {
+                const red = this.curveHistogramBinsR[index] ?? 0;
+                const green = this.curveHistogramBinsG[index] ?? 0;
+                const blue = this.curveHistogramBinsB[index] ?? 0;
+                const redHeight = Math.max(2, Math.min(100, red * 100));
+                const greenHeight = Math.max(2, Math.min(100, green * 100));
+                const blueHeight = Math.max(2, Math.min(100, blue * 100));
+                return html`<div class="histogram-bin-group" title=${`L ${Math.round(value * 100)}% · R ${Math.round(red * 100)}% · G ${Math.round(green * 100)}% · B ${Math.round(blue * 100)}%`}>
+                  <div
+                    class="histogram-bar histogram-bar-r"
+                    style=${`height:${redHeight.toFixed(2)}%;`}
+                  ></div>
+                  <div
+                    class="histogram-bar histogram-bar-g"
+                    style=${`height:${greenHeight.toFixed(2)}%;`}
+                  ></div>
+                  <div
+                    class="histogram-bar histogram-bar-b"
+                    style=${`height:${blueHeight.toFixed(2)}%;`}
+                  ></div>
+                </div>`;
+              })
+            : displayBins.map((value, index) => {
+                const style = this.histogramPanelBarStyle(index, value);
+                const heightPercent = Math.max(2, Math.min(100, value * 100));
+                return html`<div
+                  class="histogram-bar"
+                  style=${`height:${heightPercent.toFixed(2)}%;${style}`}
+                ></div>`;
+              })
           : hasMergedPreview
             ? html`<span>Merged preview is available, waiting for histogram data…</span>`
             : html`<span>Merge A/B first to generate HDR histogram.</span>`}
@@ -2467,6 +2573,7 @@ class HdrMergeApp extends LitElement {
     if (!displayBitmap) {
       if (!this.currentBitmap && !this.previousBitmap) {
         this.curveHistogramBins = [];
+        this.curveBackdropHistogramBins = [];
         this.curveHistogramPath = "";
       }
       return;
@@ -2562,6 +2669,7 @@ class HdrMergeApp extends LitElement {
     if (!context) {
       this.curveHistogramPath = "";
       this.curveHistogramBins = [];
+      this.curveBackdropHistogramBins = [];
       this.curveHistogramBinsR = [];
       this.curveHistogramBinsG = [];
       this.curveHistogramBinsB = [];
@@ -2577,27 +2685,26 @@ class HdrMergeApp extends LitElement {
       imageData = undefined;
     }
 
-    const bins = new Uint32Array(64);
-    const binsR = new Uint32Array(64);
-    const binsG = new Uint32Array(64);
-    const binsB = new Uint32Array(64);
+    const binCount = HdrMergeApp.histogramBinCount;
+    const backdropBinCount = HdrMergeApp.curveBackdropHistogramBinCount;
+    const bins = new Uint32Array(binCount);
+    const binsBackdrop = new Uint32Array(backdropBinCount);
+    const binsR = new Uint32Array(binCount);
+    const binsG = new Uint32Array(binCount);
+    const binsB = new Uint32Array(binCount);
     if (imageData) {
       for (let index = 0; index < imageData.length; index += 4) {
         const red = imageData[index] ?? 0;
         const green = imageData[index + 1] ?? 0;
         const blue = imageData[index + 2] ?? 0;
-        const redBin = Math.min(63, Math.max(0, Math.floor((red / 255) * 63)));
-        const greenBin = Math.min(
-          63,
-          Math.max(0, Math.floor((green / 255) * 63)),
-        );
-        const blueBin = Math.min(63, Math.max(0, Math.floor((blue / 255) * 63)));
+        const redBin = this.histogramBinIndex(red, binCount);
+        const greenBin = this.histogramBinIndex(green, binCount);
+        const blueBin = this.histogramBinIndex(blue, binCount);
         const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-        const bin = Math.min(
-          63,
-          Math.max(0, Math.floor((luminance / 255) * 63)),
-        );
+        const bin = this.histogramBinIndex(luminance, binCount);
+        const backdropBin = this.histogramBinIndex(luminance, backdropBinCount);
         bins[bin] += 1;
+        binsBackdrop[backdropBin] += 1;
         binsR[redBin] += 1;
         binsG[greenBin] += 1;
         binsB[blueBin] += 1;
@@ -2619,18 +2726,14 @@ class HdrMergeApp extends LitElement {
           const red = fallbackData[index] ?? 0;
           const green = fallbackData[index + 1] ?? 0;
           const blue = fallbackData[index + 2] ?? 0;
-          const redBin = Math.min(63, Math.max(0, Math.floor((red / 255) * 63)));
-          const greenBin = Math.min(
-            63,
-            Math.max(0, Math.floor((green / 255) * 63)),
-          );
-          const blueBin = Math.min(63, Math.max(0, Math.floor((blue / 255) * 63)));
+          const redBin = this.histogramBinIndex(red, binCount);
+          const greenBin = this.histogramBinIndex(green, binCount);
+          const blueBin = this.histogramBinIndex(blue, binCount);
           const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-          const bin = Math.min(
-            63,
-            Math.max(0, Math.floor((luminance / 255) * 63)),
-          );
+          const bin = this.histogramBinIndex(luminance, binCount);
+          const backdropBin = this.histogramBinIndex(luminance, backdropBinCount);
           bins[bin] += 1;
+          binsBackdrop[backdropBin] += 1;
           binsR[redBin] += 1;
           binsG[greenBin] += 1;
           binsB[blueBin] += 1;
@@ -2644,13 +2747,20 @@ class HdrMergeApp extends LitElement {
     if (maxCount <= 0) {
       this.curveHistogramPath = "";
       this.curveHistogramBins = [];
+      this.curveBackdropHistogramBins = [];
       this.curveHistogramBinsR = [];
       this.curveHistogramBinsG = [];
       this.curveHistogramBinsB = [];
       return;
     }
 
-    this.updateCurveHistogramFromBins(bins, binsR, binsG, binsB);
+    this.updateCurveHistogramFromBins(
+      bins,
+      binsBackdrop,
+      binsR,
+      binsG,
+      binsB,
+    );
   }
 
   private updateCurveHistogramFromBitmap(sourceBitmap: ImageBitmap): void {
@@ -2675,6 +2785,7 @@ class HdrMergeApp extends LitElement {
     const context = this.histogramContext;
     if (!context) {
       this.curveHistogramBins = [];
+      this.curveBackdropHistogramBins = [];
       this.curveHistogramBinsR = [];
       this.curveHistogramBinsG = [];
       this.curveHistogramBinsB = [];
@@ -2685,30 +2796,39 @@ class HdrMergeApp extends LitElement {
       context.clearRect(0, 0, targetWidth, targetHeight);
       context.drawImage(sourceBitmap, 0, 0, targetWidth, targetHeight);
       const data = context.getImageData(0, 0, targetWidth, targetHeight).data;
-      const bins = new Uint32Array(64);
-      const binsR = new Uint32Array(64);
-      const binsG = new Uint32Array(64);
-      const binsB = new Uint32Array(64);
+      const binCount = HdrMergeApp.histogramBinCount;
+      const backdropBinCount = HdrMergeApp.curveBackdropHistogramBinCount;
+      const bins = new Uint32Array(binCount);
+      const binsBackdrop = new Uint32Array(backdropBinCount);
+      const binsR = new Uint32Array(binCount);
+      const binsG = new Uint32Array(binCount);
+      const binsB = new Uint32Array(binCount);
       for (let index = 0; index < data.length; index += 4) {
         const red = data[index] ?? 0;
         const green = data[index + 1] ?? 0;
         const blue = data[index + 2] ?? 0;
-        const redBin = Math.min(63, Math.max(0, Math.floor((red / 255) * 63)));
-        const greenBin = Math.min(
-          63,
-          Math.max(0, Math.floor((green / 255) * 63)),
-        );
-        const blueBin = Math.min(63, Math.max(0, Math.floor((blue / 255) * 63)));
+        const redBin = this.histogramBinIndex(red, binCount);
+        const greenBin = this.histogramBinIndex(green, binCount);
+        const blueBin = this.histogramBinIndex(blue, binCount);
         const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-        const bin = Math.min(63, Math.max(0, Math.floor((luminance / 255) * 63)));
+        const bin = this.histogramBinIndex(luminance, binCount);
+        const backdropBin = this.histogramBinIndex(luminance, backdropBinCount);
         bins[bin] += 1;
+        binsBackdrop[backdropBin] += 1;
         binsR[redBin] += 1;
         binsG[greenBin] += 1;
         binsB[blueBin] += 1;
       }
-      this.updateCurveHistogramFromBins(bins, binsR, binsG, binsB);
+      this.updateCurveHistogramFromBins(
+        bins,
+        binsBackdrop,
+        binsR,
+        binsG,
+        binsB,
+      );
     } catch {
       this.curveHistogramBins = [];
+      this.curveBackdropHistogramBins = [];
       this.curveHistogramBinsR = [];
       this.curveHistogramBinsG = [];
       this.curveHistogramBinsB = [];
@@ -2717,13 +2837,16 @@ class HdrMergeApp extends LitElement {
 
   private updateCurveHistogramFromBins(
     bins: Uint32Array,
+    binsBackdrop: Uint32Array,
     binsR: Uint32Array,
     binsG: Uint32Array,
     binsB: Uint32Array,
   ): void {
     const normalizedBins = this.normalizeHistogramBins(bins);
+    const normalizedBackdropBins = this.normalizeHistogramBins(binsBackdrop);
     if (normalizedBins.length === 0) {
       this.curveHistogramBins = [];
+      this.curveBackdropHistogramBins = [];
       this.curveHistogramBinsR = [];
       this.curveHistogramBinsG = [];
       this.curveHistogramBinsB = [];
@@ -2762,8 +2885,22 @@ class HdrMergeApp extends LitElement {
           Math.abs(value - (normalizedBinsB[index] ?? 0)) > 0.001,
       );
 
-    if (luminanceChanged || redChanged || greenChanged || blueChanged) {
+    const backdropChanged =
+      this.curveBackdropHistogramBins.length !== normalizedBackdropBins.length ||
+      this.curveBackdropHistogramBins.some(
+        (value, index) =>
+          Math.abs(value - (normalizedBackdropBins[index] ?? 0)) > 0.001,
+      );
+
+    if (
+      luminanceChanged ||
+      backdropChanged ||
+      redChanged ||
+      greenChanged ||
+      blueChanged
+    ) {
       this.curveHistogramBins = normalizedBins;
+      this.curveBackdropHistogramBins = normalizedBackdropBins;
       this.curveHistogramBinsR = normalizedBinsR;
       this.curveHistogramBinsG = normalizedBinsG;
       this.curveHistogramBinsB = normalizedBinsB;
@@ -2852,6 +2989,8 @@ class HdrMergeApp extends LitElement {
     const contrast = this.previewContrast / 100;
     const warmth = this.previewWarmth / 100;
     const saturation = this.previewSaturation / 100;
+    const tint = this.previewTint / 100;
+    const vibrance = this.previewVibrance / 100;
     const redGain = Math.max(0, 1 + this.previewRed / 100);
     const greenGain = Math.max(0, 1 + this.previewGreen / 100);
     const blueGain = Math.max(0, 1 + this.previewBlue / 100);
@@ -2862,6 +3001,8 @@ class HdrMergeApp extends LitElement {
         Math.abs(contrast) < 1e-6 &&
         Math.abs(warmth) < 1e-6 &&
         Math.abs(saturation) < 1e-6 &&
+        Math.abs(tint) < 1e-6 &&
+        Math.abs(vibrance) < 1e-6 &&
         Math.abs(redGain - 1) < 1e-6 &&
         Math.abs(greenGain - 1) < 1e-6 &&
         Math.abs(blueGain - 1) < 1e-6 &&
@@ -2876,6 +3017,8 @@ class HdrMergeApp extends LitElement {
     const warmthRedGain = 1 + warmth * 0.22;
     const warmthBlueGain = 1 - warmth * 0.22;
     const saturationScale = Math.max(0, 1 + saturation);
+    const tintRedBlueGain = 1 + tint * 0.18;
+    const tintGreenGain = 1 - tint * 0.24;
     const curveLut = this.buildCurveLut();
     const lut = new Uint8ClampedArray(256);
 
@@ -2983,20 +3126,49 @@ class HdrMergeApp extends LitElement {
         Math.max(0, mappedBlue * warmthBlueGain),
       );
 
+      const tintedRed = Math.min(255, Math.max(0, warmedRed * tintRedBlueGain));
+      const tintedGreen = Math.min(
+        255,
+        Math.max(0, mappedGreen * tintGreenGain),
+      );
+      const tintedBlue = Math.min(
+        255,
+        Math.max(0, warmedBlue * tintRedBlueGain),
+      );
+
       const luminance =
-        0.2126 * warmedRed + 0.7152 * mappedGreen + 0.0722 * warmedBlue;
+        0.2126 * tintedRed + 0.7152 * tintedGreen + 0.0722 * tintedBlue;
+
+      const maxChannel = Math.max(tintedRed, tintedGreen, tintedBlue);
+      const minChannel = Math.min(tintedRed, tintedGreen, tintedBlue);
+      const colorfulness = (maxChannel - minChannel) / 255;
+      const vibranceScale =
+        vibrance >= 0 ? 1 + vibrance * (1 - colorfulness) : 1 + vibrance;
+
+      const vibrantRed = Math.min(
+        255,
+        Math.max(0, luminance + (tintedRed - luminance) * vibranceScale),
+      );
+      const vibrantGreen = Math.min(
+        255,
+        Math.max(0, luminance + (tintedGreen - luminance) * vibranceScale),
+      );
+      const vibrantBlue = Math.min(
+        255,
+        Math.max(0, luminance + (tintedBlue - luminance) * vibranceScale),
+      );
 
       const saturatedRed = Math.min(
         255,
-        Math.max(0, luminance + (warmedRed - luminance) * saturationScale),
+        Math.max(0, luminance + (vibrantRed - luminance) * saturationScale),
       );
       const saturatedGreen = Math.min(
         255,
-        Math.max(0, luminance + (mappedGreen - luminance) * saturationScale),
+        Math.max(0, luminance + (vibrantGreen - luminance) * saturationScale),
       );
       const saturatedBlue = Math.min(
         255,
-        Math.max(0, luminance + (warmedBlue - luminance) * saturationScale),
+        Math.max(0, luminance + (vibrantBlue - luminance) * saturationScale),
       );
 
       const balancedRed = Math.min(255, Math.max(0, saturatedRed * redGain));
@@ -3433,6 +3605,26 @@ class HdrMergeApp extends LitElement {
     this.requestPreviewRender("interactive");
   }
 
+  private onPreviewTintInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewTint = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onPreviewVibranceInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewVibrance = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
   private onPreviewRedInput(event: Event): void {
     const value = Number((event.currentTarget as HTMLInputElement).value);
     if (!Number.isFinite(value)) {
@@ -3464,6 +3656,17 @@ class HdrMergeApp extends LitElement {
   }
 
   private onPreviewAdjustmentCommit = (): void => {
+    this.requestPreviewRender("full");
+  };
+
+  private onPreviewColorReset = (): void => {
+    this.previewWarmth = 0;
+    this.previewTint = 0;
+    this.previewVibrance = 0;
+    this.previewSaturation = 0;
+    this.previewRed = 0;
+    this.previewGreen = 0;
+    this.previewBlue = 0;
     this.requestPreviewRender("full");
   };
 
