@@ -346,6 +346,13 @@ class HdrMergeApp extends LitElement {
       grid-column: 1 / -1;
     }
 
+    .preview-rgb-reset {
+      justify-self: end;
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
     .curves-panel {
       border: 1px solid #374151;
       border-radius: 8px;
@@ -368,6 +375,34 @@ class HdrMergeApp extends LitElement {
       opacity: 0.9;
     }
 
+    .curves-rgb-legend {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      opacity: 0.9;
+      margin-left: 8px;
+    }
+
+    .curves-rgb-chip {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .curves-rgb-chip-r {
+      background: #ef4444;
+    }
+
+    .curves-rgb-chip-g {
+      background: #22c55e;
+    }
+
+    .curves-rgb-chip-b {
+      background: #3b82f6;
+    }
+
     .curves-reset {
       padding: 4px 8px;
       font-size: 11px;
@@ -379,16 +414,37 @@ class HdrMergeApp extends LitElement {
       inset: 0;
       width: 100%;
       height: 152px;
-      border: 1px solid #374151;
-      border-radius: 6px;
-      background: #030712;
+      background: transparent;
       touch-action: none;
+      z-index: 1;
     }
 
     .curves-editor-wrap {
       position: relative;
       width: 100%;
       height: 152px;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      background: #030712;
+      overflow: hidden;
+    }
+
+    .curves-histogram-backdrop {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 1px;
+      padding: 4px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .curves-histogram-backdrop-bar {
+      flex: 1 1 auto;
+      min-width: 1px;
+      border-top-left-radius: 1px;
+      border-top-right-radius: 1px;
     }
 
     .curves-overlay {
@@ -397,6 +453,7 @@ class HdrMergeApp extends LitElement {
       pointer-events: none;
       overflow: hidden;
       border-radius: 6px;
+      z-index: 2;
     }
 
     .curves-overlay-marker {
@@ -449,10 +506,151 @@ class HdrMergeApp extends LitElement {
       fill: none;
     }
 
+    .curves-rgb-line {
+      fill: none;
+      stroke-width: 1.4;
+      pointer-events: none;
+    }
+
+    .curves-rgb-line-r {
+      stroke: rgba(239, 68, 68, 0.95);
+    }
+
+    .curves-rgb-line-g {
+      stroke: rgba(34, 197, 94, 0.95);
+    }
+
+    .curves-rgb-line-b {
+      stroke: rgba(59, 130, 246, 0.95);
+    }
+
+    .curves-histogram-bar {
+      pointer-events: none;
+      shape-rendering: crispEdges;
+    }
+
+    .curves-histogram-area {
+      fill: url(#curvesHistogramToneGradient);
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .curves-histogram-line {
+      stroke: rgba(255, 255, 255, 1);
+      stroke-width: 2.2;
+      fill: none;
+      pointer-events: none;
+    }
+
+    .curves-clip-indicator {
+      fill: #ef4444;
+      pointer-events: none;
+    }
+
     .curves-path {
       stroke: #e9800a;
       stroke-width: 2;
       fill: none;
+    }
+
+    .histogram-panel {
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0b1220;
+      display: grid;
+      gap: 8px;
+    }
+
+    .histogram-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .histogram-header-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .histogram-title {
+      font-size: 12px;
+      opacity: 0.95;
+    }
+
+    .histogram-meta {
+      font-size: 11px;
+      opacity: 0.8;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .histogram-clip-triangle {
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 8px solid #6b7280;
+      opacity: 0.55;
+    }
+
+    .histogram-clip-triangle-active {
+      border-bottom-color: #ef4444;
+      opacity: 1;
+    }
+
+    .histogram-controls {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .histogram-mode-btn {
+      border: 1px solid #4b5563;
+      background: #111827;
+      color: #cbd5e1;
+      border-radius: 6px;
+      font-size: 10px;
+      padding: 3px 6px;
+      line-height: 1;
+    }
+
+    .histogram-mode-btn-active {
+      border-color: #94a3b8;
+      color: #f8fafc;
+      background: #1f2937;
+    }
+
+    .histogram-canvas {
+      height: 112px;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      background: #020617;
+      display: flex;
+      align-items: flex-end;
+      gap: 1px;
+      overflow: hidden;
+      padding: 4px;
+    }
+
+    .histogram-canvas-empty {
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+      font-size: 11px;
+      opacity: 0.92;
+      background: #020617;
+      text-align: center;
+      padding: 8px;
+    }
+
+    .histogram-bar {
+      flex: 1 1 auto;
+      min-width: 1px;
+      border-top-left-radius: 1px;
+      border-top-right-radius: 1px;
     }
 
     .curves-point {
@@ -818,6 +1016,15 @@ class HdrMergeApp extends LitElement {
   private previewSaturation = 0;
 
   @state()
+  private previewRed = 0;
+
+  @state()
+  private previewGreen = 0;
+
+  @state()
+  private previewBlue = 0;
+
+  @state()
   private exportStatusMessage = "";
 
   @state()
@@ -837,6 +1044,24 @@ class HdrMergeApp extends LitElement {
 
   @state()
   private importDialogOpen = false;
+
+  @state()
+  private curveHistogramPath = "";
+
+  @state()
+  private curveHistogramBins: number[] = [];
+
+  @state()
+  private curveHistogramBinsR: number[] = [];
+
+  @state()
+  private curveHistogramBinsG: number[] = [];
+
+  @state()
+  private curveHistogramBinsB: number[] = [];
+
+  @state()
+  private histogramChannelMode: "rgb" | "r" | "g" | "b" = "rgb";
 
   private currentPreviewPath = "";
   private previousPreviewPath = "";
@@ -879,6 +1104,8 @@ class HdrMergeApp extends LitElement {
   private previewRenderPendingMode: "interactive" | "full" | null = null;
   private previewWorkCanvas?: HTMLCanvasElement;
   private previewWorkContext?: CanvasRenderingContext2D;
+  private histogramCanvas?: HTMLCanvasElement;
+  private histogramContext?: CanvasRenderingContext2D;
 
   private async getApi() {
     const maxWaitMs = 1500;
@@ -942,21 +1169,6 @@ class HdrMergeApp extends LitElement {
     return html`
       <div class="layout">
         <section class="panel sidebar">
-          <h1 class="title">RAW files for HDR merge</h1>
-          <p class="subtitle">Folder: ${this.folderPickerLabel()}</p>
-          <p class="subtitle">Use menu: Files → Import</p>
-
-          ${this.folderPath
-            ? html`<div class="export-actions">
-                <button
-                  @click=${this.onCleanupLegacyPreviews}
-                  ?disabled=${this.isBusy}
-                >
-                  Cleanup old preview files…
-                </button>
-              </div>`
-            : ""}
-
           <section class="preview-adjustments">
             <h3 class="settings-title">Preview Adjustments</h3>
             <label class="preview-adjustment-row">
@@ -1044,10 +1256,75 @@ class HdrMergeApp extends LitElement {
                 aria-label="Preview saturation"
               />
             </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Red</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewRed)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewRed)}
+                @input=${this.onPreviewRedInput}
+                @change=${this.onPreviewAdjustmentCommit}
+                aria-label="Preview red"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Green</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewGreen)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewGreen)}
+                @input=${this.onPreviewGreenInput}
+                @change=${this.onPreviewAdjustmentCommit}
+                aria-label="Preview green"
+              />
+            </label>
+            <label class="preview-adjustment-row">
+              <span class="preview-adjustment-label">Preview Blue</span>
+              <span class="preview-adjustment-value"
+                >${this.formatSignedPercent(this.previewBlue)}</span
+              >
+              <input
+                class="preview-adjustment-slider"
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                .value=${String(this.previewBlue)}
+                @input=${this.onPreviewBlueInput}
+                @change=${this.onPreviewAdjustmentCommit}
+                aria-label="Preview blue"
+              />
+            </label>
+            <button
+              class="preview-rgb-reset"
+              @click=${this.onPreviewRgbReset}
+              ?disabled=${this.isBusy}
+            >
+              Reset RGB
+            </button>
 
             <section class="curves-panel">
               <div class="curves-header">
-                <span class="curves-title">Curves</span>
+                <span class="curves-title"
+                  >Curves
+                  <span class="curves-rgb-legend">
+                    <span class="curves-rgb-chip curves-rgb-chip-r"></span>R
+                    <span class="curves-rgb-chip curves-rgb-chip-g"></span>G
+                    <span class="curves-rgb-chip curves-rgb-chip-b"></span>B
+                  </span></span
+                >
                 <button
                   class="curves-reset"
                   @click=${this.onResetCurves}
@@ -1057,6 +1334,24 @@ class HdrMergeApp extends LitElement {
                 </button>
               </div>
               <div class="curves-editor-wrap">
+                <div class="curves-histogram-backdrop">
+                  ${this.curveHistogramBins.map((value, index) => {
+                    const red = Math.round(
+                      24 + (this.curveHistogramBinsR[index] ?? 0) * 220,
+                    );
+                    const green = Math.round(
+                      24 + (this.curveHistogramBinsG[index] ?? 0) * 220,
+                    );
+                    const blue = Math.round(
+                      24 + (this.curveHistogramBinsB[index] ?? 0) * 220,
+                    );
+                    const heightPercent = Math.max(2, Math.min(100, value * 100));
+                    return html`<div
+                      class="curves-histogram-backdrop-bar"
+                      style=${`height:${heightPercent.toFixed(2)}%;background:rgb(${red},${green},${blue});`}
+                    ></div>`;
+                  })}
+                </div>
                 <svg
                   id="curveEditor"
                   class="curves-editor"
@@ -1086,6 +1381,30 @@ class HdrMergeApp extends LitElement {
                       ></line>
                     `,
                   )}
+                  ${this.curveHistogramBinsR.length > 0
+                    ? html`<path
+                        class="curves-rgb-line curves-rgb-line-r"
+                        d=${this.curveHistogramPathFromBins(
+                          this.curveHistogramBinsR,
+                        )}
+                      ></path>`
+                    : ""}
+                  ${this.curveHistogramBinsG.length > 0
+                    ? html`<path
+                        class="curves-rgb-line curves-rgb-line-g"
+                        d=${this.curveHistogramPathFromBins(
+                          this.curveHistogramBinsG,
+                        )}
+                      ></path>`
+                    : ""}
+                  ${this.curveHistogramBinsB.length > 0
+                    ? html`<path
+                        class="curves-rgb-line curves-rgb-line-b"
+                        d=${this.curveHistogramPathFromBins(
+                          this.curveHistogramBinsB,
+                        )}
+                      ></path>`
+                    : ""}
                   <path class="curves-diagonal" d="M 0 140 L 220 0"></path>
                   <path class="curves-path" d=${this.curvePathD()}></path>
                   ${this.curveControlXsCurrent.map((x, index) => {
@@ -1117,6 +1436,8 @@ class HdrMergeApp extends LitElement {
                 </div>
               </div>
             </section>
+
+            ${this.renderHistogramPanel()}
           </section>
 
           ${this.error ? html`<p class="error">${this.error}</p>` : ""}
@@ -1232,6 +1553,136 @@ class HdrMergeApp extends LitElement {
     </div>`;
   }
 
+  private renderHistogramPanel(): TemplateResult {
+    const hasMergedPreview = Boolean(
+      this.currentPreviewPath || this.previousPreviewPath,
+    );
+    const displayBins = this.histogramPanelDisplayBins();
+    const hasBins = displayBins.length > 0;
+    return html`<section class="histogram-panel">
+      <div class="histogram-header">
+        <span class="histogram-title">Merged HDR Histogram</span>
+        <span class="histogram-header-right">
+          <span
+            class=${`histogram-clip-triangle${this.histogramShadowClipActive() ? " histogram-clip-triangle-active" : ""}`}
+            title="Shadow clipping"
+          ></span>
+          <span
+            class=${`histogram-clip-triangle${this.histogramHighlightClipActive() ? " histogram-clip-triangle-active" : ""}`}
+            title="Highlight clipping"
+          ></span>
+          <span class="histogram-controls">
+            ${(["rgb", "r", "g", "b"] as const).map(
+              (mode) => html`<button
+                class=${`histogram-mode-btn${this.histogramChannelMode === mode
+                  ? " histogram-mode-btn-active"
+                  : ""}`}
+                @click=${() => this.onHistogramChannelModeChange(mode)}
+                ?disabled=${this.isBusy}
+              >
+                ${mode.toUpperCase()}
+              </button>`,
+            )}
+          </span>
+          <span class="histogram-meta"
+            >${hasBins ? `${displayBins.length} bins` : "no data"}</span
+          >
+        </span>
+      </div>
+      <div class=${`histogram-canvas${hasBins ? "" : " histogram-canvas-empty"}`}>
+        ${hasBins
+          ? displayBins.map((value, index) => {
+              const style = this.histogramPanelBarStyle(index, value);
+              const heightPercent = Math.max(2, Math.min(100, value * 100));
+              return html`<div
+                class="histogram-bar"
+                style=${`height:${heightPercent.toFixed(2)}%;${style}`}
+              ></div>`;
+            })
+          : hasMergedPreview
+            ? html`<span>Merged preview is available, waiting for histogram data…</span>`
+            : html`<span>Merge A/B first to generate HDR histogram.</span>`}
+      </div>
+    </section>`;
+  }
+
+  private onHistogramChannelModeChange(
+    mode: "rgb" | "r" | "g" | "b",
+  ): void {
+    this.histogramChannelMode = mode;
+  }
+
+  private histogramPanelDisplayBins(): number[] {
+    if (this.histogramChannelMode === "r") {
+      return this.curveHistogramBinsR;
+    }
+    if (this.histogramChannelMode === "g") {
+      return this.curveHistogramBinsG;
+    }
+    if (this.histogramChannelMode === "b") {
+      return this.curveHistogramBinsB;
+    }
+
+    const length = Math.max(
+      this.curveHistogramBinsR.length,
+      this.curveHistogramBinsG.length,
+      this.curveHistogramBinsB.length,
+      this.curveHistogramBins.length,
+    );
+    if (length === 0) {
+      return [];
+    }
+
+    return Array.from({ length }, (_, index) =>
+      Math.max(
+        this.curveHistogramBins[index] ?? 0,
+        this.curveHistogramBinsR[index] ?? 0,
+        this.curveHistogramBinsG[index] ?? 0,
+        this.curveHistogramBinsB[index] ?? 0,
+      ),
+    );
+  }
+
+  private histogramPanelBarStyle(index: number, value: number): string {
+    if (this.histogramChannelMode === "r") {
+      return `background:rgba(239,68,68,${Math.min(0.98, 0.28 + value * 0.7).toFixed(3)});`;
+    }
+    if (this.histogramChannelMode === "g") {
+      return `background:rgba(34,197,94,${Math.min(0.98, 0.28 + value * 0.7).toFixed(3)});`;
+    }
+    if (this.histogramChannelMode === "b") {
+      return `background:rgba(59,130,246,${Math.min(0.98, 0.28 + value * 0.7).toFixed(3)});`;
+    }
+
+    const red = Math.round(24 + (this.curveHistogramBinsR[index] ?? 0) * 220);
+    const green = Math.round(24 + (this.curveHistogramBinsG[index] ?? 0) * 220);
+    const blue = Math.round(24 + (this.curveHistogramBinsB[index] ?? 0) * 220);
+    return `background:rgb(${red},${green},${blue});`;
+  }
+
+  private histogramShadowClipActive(): boolean {
+    const bins = this.histogramPanelDisplayBins();
+    if (bins.length === 0) {
+      return false;
+    }
+
+    const avg =
+      bins.slice(0, Math.min(2, bins.length)).reduce((sum, value) => sum + value, 0) /
+      Math.min(2, bins.length);
+    return avg >= 0.86;
+  }
+
+  private histogramHighlightClipActive(): boolean {
+    const bins = this.histogramPanelDisplayBins();
+    if (bins.length === 0) {
+      return false;
+    }
+
+    const tail = bins.slice(-Math.min(2, bins.length));
+    const avg = tail.reduce((sum, value) => sum + value, 0) / tail.length;
+    return avg >= 0.86;
+  }
+
   private async installMenuActionListener(): Promise<void> {
     try {
       const api = await this.getApi();
@@ -1319,6 +1770,7 @@ class HdrMergeApp extends LitElement {
   }
 
   private async loadInitialFolder(): Promise<void> {
+    let loadedSavedFolder = false;
     const savedFolder = localStorage.getItem(LAST_FOLDER_STORAGE_KEY);
     if (savedFolder) {
       this.error = "";
@@ -1328,7 +1780,7 @@ class HdrMergeApp extends LitElement {
           await this.getApi()
         ).listHdrFilesInFolder(savedFolder);
         this.applyFileListResult(result);
-        return;
+        loadedSavedFolder = true;
       } catch {
         localStorage.removeItem(LAST_FOLDER_STORAGE_KEY);
       } finally {
@@ -1336,7 +1788,13 @@ class HdrMergeApp extends LitElement {
       }
     }
 
-    await this.refreshFiles();
+    if (!loadedSavedFolder) {
+      await this.refreshFiles();
+    }
+
+    if (this.selected.size === 0 && !this.importDialogOpen) {
+      this.importDialogOpen = true;
+    }
   }
 
   private renderFolderTree() {
@@ -1524,8 +1982,17 @@ class HdrMergeApp extends LitElement {
     if (canvasChanged && this.currentCanvas) {
       this.requestPreviewRender("full");
     }
+    this.ensureHistogramFromActiveMergedBitmap();
   }
 
+
+  private ensureHistogramFromActiveMergedBitmap(): void {
+    const activeBitmap =
+      this.singleViewTarget === "a" ? this.previousBitmap : this.currentBitmap;
+    if (activeBitmap && this.curveHistogramBins.length === 0) {
+      this.updateCurveHistogramFromBitmap(activeBitmap);
+    }
+  }
   private requestPreviewRender(mode: "interactive" | "full" = "full"): void {
     if (mode === "full") {
       this.previewRenderMode = "full";
@@ -1839,8 +2306,15 @@ class HdrMergeApp extends LitElement {
       this.exportJpegTarget = target;
       this.resetZoomState();
 
+      const histogramBitmap =
+        target === "a" ? this.previousBitmap : this.currentBitmap;
+      if (histogramBitmap) {
+        this.updateCurveHistogramFromBitmap(histogramBitmap);
+      }
+
       await this.updateComplete;
       await this.renderPreviewIfPossible();
+      this.ensureHistogramFromActiveMergedBitmap();
     } catch (error) {
       this.error =
         error instanceof Error ? error.message : "Could not merge RAW images.";
@@ -1991,6 +2465,10 @@ class HdrMergeApp extends LitElement {
         : this.currentBitmap;
 
     if (!displayBitmap) {
+      if (!this.currentBitmap && !this.previousBitmap) {
+        this.curveHistogramBins = [];
+        this.curveHistogramPath = "";
+      }
       return;
     }
 
@@ -2037,6 +2515,7 @@ class HdrMergeApp extends LitElement {
       this.drawSplitGuide(context, splitX, width, height);
 
       this.applyPreviewToneMapping(context, width, height, interactiveQuality);
+      this.updateCurveHistogramFromSource(this.currentCanvas, displayBitmap);
       return;
     }
 
@@ -2054,6 +2533,312 @@ class HdrMergeApp extends LitElement {
     context.restore();
 
     this.applyPreviewToneMapping(context, width, height, interactiveQuality);
+    this.updateCurveHistogramFromSource(this.currentCanvas, displayBitmap);
+  }
+
+  private updateCurveHistogramFromSource(
+    sourceCanvas: HTMLCanvasElement,
+    sourceBitmap: ImageBitmap,
+  ): void {
+    if (!this.histogramCanvas) {
+      this.histogramCanvas = document.createElement("canvas");
+    }
+
+    const targetWidth = 220;
+    const targetHeight = 140;
+    this.histogramCanvas.width = targetWidth;
+    this.histogramCanvas.height = targetHeight;
+
+    if (!this.histogramContext) {
+      this.histogramContext =
+        this.histogramCanvas.getContext("2d", {
+          willReadFrequently: true,
+        }) ??
+        this.histogramCanvas.getContext("2d") ??
+        undefined;
+    }
+
+    const context = this.histogramContext;
+    if (!context) {
+      this.curveHistogramPath = "";
+      this.curveHistogramBins = [];
+      this.curveHistogramBinsR = [];
+      this.curveHistogramBinsG = [];
+      this.curveHistogramBinsB = [];
+      return;
+    }
+
+    let imageData: Uint8ClampedArray | undefined;
+    try {
+      context.clearRect(0, 0, targetWidth, targetHeight);
+      context.drawImage(sourceCanvas, 0, 0, targetWidth, targetHeight);
+      imageData = context.getImageData(0, 0, targetWidth, targetHeight).data;
+    } catch {
+      imageData = undefined;
+    }
+
+    const bins = new Uint32Array(64);
+    const binsR = new Uint32Array(64);
+    const binsG = new Uint32Array(64);
+    const binsB = new Uint32Array(64);
+    if (imageData) {
+      for (let index = 0; index < imageData.length; index += 4) {
+        const red = imageData[index] ?? 0;
+        const green = imageData[index + 1] ?? 0;
+        const blue = imageData[index + 2] ?? 0;
+        const redBin = Math.min(63, Math.max(0, Math.floor((red / 255) * 63)));
+        const greenBin = Math.min(
+          63,
+          Math.max(0, Math.floor((green / 255) * 63)),
+        );
+        const blueBin = Math.min(63, Math.max(0, Math.floor((blue / 255) * 63)));
+        const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+        const bin = Math.min(
+          63,
+          Math.max(0, Math.floor((luminance / 255) * 63)),
+        );
+        bins[bin] += 1;
+        binsR[redBin] += 1;
+        binsG[greenBin] += 1;
+        binsB[blueBin] += 1;
+      }
+    }
+
+    let maxCount = bins.reduce((max, value) => Math.max(max, value), 0);
+    if (maxCount <= 0) {
+      try {
+        context.clearRect(0, 0, targetWidth, targetHeight);
+        context.drawImage(sourceBitmap, 0, 0, targetWidth, targetHeight);
+        const fallbackData = context.getImageData(
+          0,
+          0,
+          targetWidth,
+          targetHeight,
+        ).data;
+        for (let index = 0; index < fallbackData.length; index += 4) {
+          const red = fallbackData[index] ?? 0;
+          const green = fallbackData[index + 1] ?? 0;
+          const blue = fallbackData[index + 2] ?? 0;
+          const redBin = Math.min(63, Math.max(0, Math.floor((red / 255) * 63)));
+          const greenBin = Math.min(
+            63,
+            Math.max(0, Math.floor((green / 255) * 63)),
+          );
+          const blueBin = Math.min(63, Math.max(0, Math.floor((blue / 255) * 63)));
+          const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+          const bin = Math.min(
+            63,
+            Math.max(0, Math.floor((luminance / 255) * 63)),
+          );
+          bins[bin] += 1;
+          binsR[redBin] += 1;
+          binsG[greenBin] += 1;
+          binsB[blueBin] += 1;
+        }
+      } catch {
+        // keep bins as-is
+      }
+      maxCount = bins.reduce((max, value) => Math.max(max, value), 0);
+    }
+
+    if (maxCount <= 0) {
+      this.curveHistogramPath = "";
+      this.curveHistogramBins = [];
+      this.curveHistogramBinsR = [];
+      this.curveHistogramBinsG = [];
+      this.curveHistogramBinsB = [];
+      return;
+    }
+
+    this.updateCurveHistogramFromBins(bins, binsR, binsG, binsB);
+  }
+
+  private updateCurveHistogramFromBitmap(sourceBitmap: ImageBitmap): void {
+    if (!this.histogramCanvas) {
+      this.histogramCanvas = document.createElement("canvas");
+    }
+
+    const targetWidth = 220;
+    const targetHeight = 140;
+    this.histogramCanvas.width = targetWidth;
+    this.histogramCanvas.height = targetHeight;
+
+    if (!this.histogramContext) {
+      this.histogramContext =
+        this.histogramCanvas.getContext("2d", {
+          willReadFrequently: true,
+        }) ??
+        this.histogramCanvas.getContext("2d") ??
+        undefined;
+    }
+
+    const context = this.histogramContext;
+    if (!context) {
+      this.curveHistogramBins = [];
+      this.curveHistogramBinsR = [];
+      this.curveHistogramBinsG = [];
+      this.curveHistogramBinsB = [];
+      return;
+    }
+
+    try {
+      context.clearRect(0, 0, targetWidth, targetHeight);
+      context.drawImage(sourceBitmap, 0, 0, targetWidth, targetHeight);
+      const data = context.getImageData(0, 0, targetWidth, targetHeight).data;
+      const bins = new Uint32Array(64);
+      const binsR = new Uint32Array(64);
+      const binsG = new Uint32Array(64);
+      const binsB = new Uint32Array(64);
+      for (let index = 0; index < data.length; index += 4) {
+        const red = data[index] ?? 0;
+        const green = data[index + 1] ?? 0;
+        const blue = data[index + 2] ?? 0;
+        const redBin = Math.min(63, Math.max(0, Math.floor((red / 255) * 63)));
+        const greenBin = Math.min(
+          63,
+          Math.max(0, Math.floor((green / 255) * 63)),
+        );
+        const blueBin = Math.min(63, Math.max(0, Math.floor((blue / 255) * 63)));
+        const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+        const bin = Math.min(63, Math.max(0, Math.floor((luminance / 255) * 63)));
+        bins[bin] += 1;
+        binsR[redBin] += 1;
+        binsG[greenBin] += 1;
+        binsB[blueBin] += 1;
+      }
+      this.updateCurveHistogramFromBins(bins, binsR, binsG, binsB);
+    } catch {
+      this.curveHistogramBins = [];
+      this.curveHistogramBinsR = [];
+      this.curveHistogramBinsG = [];
+      this.curveHistogramBinsB = [];
+    }
+  }
+
+  private updateCurveHistogramFromBins(
+    bins: Uint32Array,
+    binsR: Uint32Array,
+    binsG: Uint32Array,
+    binsB: Uint32Array,
+  ): void {
+    const normalizedBins = this.normalizeHistogramBins(bins);
+    if (normalizedBins.length === 0) {
+      this.curveHistogramBins = [];
+      this.curveHistogramBinsR = [];
+      this.curveHistogramBinsG = [];
+      this.curveHistogramBinsB = [];
+      return;
+    }
+
+    const normalizedBinsR = this.normalizeHistogramBins(binsR);
+    const normalizedBinsG = this.normalizeHistogramBins(binsG);
+    const normalizedBinsB = this.normalizeHistogramBins(binsB);
+
+    const luminanceChanged =
+      this.curveHistogramBins.length !== normalizedBins.length ||
+      this.curveHistogramBins.some(
+        (value, index) =>
+          Math.abs(value - (normalizedBins[index] ?? 0)) > 0.001,
+      );
+
+    const redChanged =
+      this.curveHistogramBinsR.length !== normalizedBinsR.length ||
+      this.curveHistogramBinsR.some(
+        (value, index) =>
+          Math.abs(value - (normalizedBinsR[index] ?? 0)) > 0.001,
+      );
+
+    const greenChanged =
+      this.curveHistogramBinsG.length !== normalizedBinsG.length ||
+      this.curveHistogramBinsG.some(
+        (value, index) =>
+          Math.abs(value - (normalizedBinsG[index] ?? 0)) > 0.001,
+      );
+
+    const blueChanged =
+      this.curveHistogramBinsB.length !== normalizedBinsB.length ||
+      this.curveHistogramBinsB.some(
+        (value, index) =>
+          Math.abs(value - (normalizedBinsB[index] ?? 0)) > 0.001,
+      );
+
+    if (luminanceChanged || redChanged || greenChanged || blueChanged) {
+      this.curveHistogramBins = normalizedBins;
+      this.curveHistogramBinsR = normalizedBinsR;
+      this.curveHistogramBinsG = normalizedBinsG;
+      this.curveHistogramBinsB = normalizedBinsB;
+      this.curveHistogramPath = "";
+      this.requestUpdate();
+    }
+  }
+
+  private normalizeHistogramBins(bins: Uint32Array): number[] {
+    const maxCount = bins.reduce((max, value) => Math.max(max, value), 0);
+    if (maxCount <= 0) {
+      return [];
+    }
+
+    const logMax = Math.log1p(maxCount);
+    return Array.from(bins, (value) =>
+      logMax > 0 ? Math.log1p(value) / logMax : 0,
+    );
+  }
+
+  private curveHistogramPathFromBins(bins: number[]): string {
+    if (bins.length === 0) {
+      return "";
+    }
+
+    return bins
+      .map((value, index) => {
+        const x = (index / Math.max(1, bins.length - 1)) * 220;
+        const y = 140 - Math.max(0, Math.min(1, value)) * 140;
+        return `${index === 0 ? "M" : "L"} ${x.toFixed(3)} ${y.toFixed(3)}`;
+      })
+      .join(" ");
+  }
+
+  private curveHistogramLinePathD(): string {
+    if (this.curveHistogramBins.length === 0) {
+      return "";
+    }
+
+    return this.curveHistogramBins
+      .map((value, index) => {
+        const x = (index / Math.max(1, this.curveHistogramBins.length - 1)) * 220;
+        const y = 140 - Math.max(0, Math.min(1, value)) * 140;
+        return `${index === 0 ? "M" : "L"} ${x.toFixed(3)} ${y.toFixed(3)}`;
+      })
+      .join(" ");
+  }
+
+  private curveHistogramAreaPathD(): string {
+    const linePath = this.curveHistogramLinePathD();
+    if (!linePath) {
+      return "";
+    }
+
+    return `${linePath} L 220 140 L 0 140 Z`;
+  }
+
+  private curveShadowClipOpacity(): number {
+    if (this.curveHistogramBins.length === 0) {
+      return 0;
+    }
+
+    const samples = this.curveHistogramBins.slice(0, 3);
+    const avg = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+    return Math.max(0, Math.min(0.9, (avg - 0.18) * 1.3));
+  }
+
+  private curveHighlightClipOpacity(): number {
+    if (this.curveHistogramBins.length === 0) {
+      return 0;
+    }
+
+    const samples = this.curveHistogramBins.slice(-3);
+    const avg = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+    return Math.max(0, Math.min(0.9, (avg - 0.18) * 1.3));
   }
 
   private applyPreviewToneMapping(
@@ -2067,6 +2852,9 @@ class HdrMergeApp extends LitElement {
     const contrast = this.previewContrast / 100;
     const warmth = this.previewWarmth / 100;
     const saturation = this.previewSaturation / 100;
+    const redGain = Math.max(0, 1 + this.previewRed / 100);
+    const greenGain = Math.max(0, 1 + this.previewGreen / 100);
+    const blueGain = Math.max(0, 1 + this.previewBlue / 100);
     const hasCurve = !this.curveIsIdentity();
 
     if (Math.abs(exposureScale - 1) < 1e-6 && Math.abs(gamma - 1) < 1e-6) {
@@ -2074,6 +2862,9 @@ class HdrMergeApp extends LitElement {
         Math.abs(contrast) < 1e-6 &&
         Math.abs(warmth) < 1e-6 &&
         Math.abs(saturation) < 1e-6 &&
+        Math.abs(redGain - 1) < 1e-6 &&
+        Math.abs(greenGain - 1) < 1e-6 &&
+        Math.abs(blueGain - 1) < 1e-6 &&
         !hasCurve
       ) {
         return;
@@ -2208,9 +2999,19 @@ class HdrMergeApp extends LitElement {
         Math.max(0, luminance + (warmedBlue - luminance) * saturationScale),
       );
 
-      const red = Math.round(saturatedRed);
-      const green = Math.round(saturatedGreen);
-      const blue = Math.round(saturatedBlue);
+      const balancedRed = Math.min(255, Math.max(0, saturatedRed * redGain));
+      const balancedGreen = Math.min(
+        255,
+        Math.max(0, saturatedGreen * greenGain),
+      );
+      const balancedBlue = Math.min(
+        255,
+        Math.max(0, saturatedBlue * blueGain),
+      );
+
+      const red = Math.round(balancedRed);
+      const green = Math.round(balancedGreen);
+      const blue = Math.round(balancedBlue);
 
       data[index] = curveLut[red];
       data[index + 1] = curveLut[green];
@@ -2632,7 +3433,44 @@ class HdrMergeApp extends LitElement {
     this.requestPreviewRender("interactive");
   }
 
+  private onPreviewRedInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewRed = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onPreviewGreenInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewGreen = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onPreviewBlueInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.previewBlue = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
   private onPreviewAdjustmentCommit = (): void => {
+    this.requestPreviewRender("full");
+  };
+
+  private onPreviewRgbReset = (): void => {
+    this.previewRed = 0;
+    this.previewGreen = 0;
+    this.previewBlue = 0;
     this.requestPreviewRender("full");
   };
 
