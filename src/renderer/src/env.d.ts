@@ -38,6 +38,7 @@ interface Window {
     pickFiles: () => Promise<HdrListResponse | null>;
     readHdrFile: (fileName: string) => Promise<Uint8Array>;
     getRawThumbnail: (filePath: string) => Promise<Uint8Array>;
+    getRawExposure: (filePath: string) => Promise<number | null>;
     suggestSets: (
       filePaths: string[],
       options?: SuggestOptions,

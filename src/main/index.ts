@@ -142,6 +142,10 @@ function getSuggestScriptPath(): string {
   return path.join(app.getAppPath(), "python", "suggest_hdr_sets.py");
 }
 
+function getExposureScriptPath(): string {
+  return path.join(app.getAppPath(), "python", "raw_exposure.py");
+}
+
 async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
   const pythonExecutable = getPythonExecutable();
   const scriptPath = getThumbnailScriptPath();
@@ -180,6 +184,52 @@ async function generateRawThumbnail(filePath: string): Promise<Uint8Array> {
 
       const output = Buffer.concat(chunks);
       resolve(new Uint8Array(output));
+    });
+  });
+}
+
+async function getRawExposure(filePath: string): Promise<number | null> {
+  const pythonExecutable = getPythonExecutable();
+  const scriptPath = getExposureScriptPath();
+
+  return new Promise<number | null>((resolve, reject) => {
+    const child = spawn(pythonExecutable, [scriptPath, filePath], {
+      cwd: app.getAppPath(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Failed to start exposure process: ${error.message}`));
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const details = stderr.trim() || `exit code ${code}`;
+        reject(new Error(`Exposure read failed: ${details}`));
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stdout.trim()) as { seconds?: number | null };
+        resolve(
+          typeof parsed.seconds === "number" && Number.isFinite(parsed.seconds)
+            ? parsed.seconds
+            : null,
+        );
+      } catch {
+        reject(new Error("Exposure read completed but returned invalid output."));
+      }
     });
   });
 }
@@ -244,13 +294,17 @@ async function mergeRawImagesToHdr(
     throw new Error("Select at least one RAW image.");
   }
 
-  const outputFolder = path.dirname(filePaths[0]);
-  const timestamp = Date.now();
-  const outputPath = path.join(outputFolder, `merged-${timestamp}.exr`);
-  const previewPath = path.join(
-    outputFolder,
-    `merged-${timestamp}-preview.png`,
+  const orderedPaths = [...filePaths].sort((left, right) =>
+    left.localeCompare(right),
   );
+  const outputFolder = path.dirname(orderedPaths[0]);
+  const firstName = path.parse(path.basename(orderedPaths[0])).name;
+  const lastName = path.parse(path.basename(orderedPaths[orderedPaths.length - 1]))
+    .name;
+  const timePart = new Date().toTimeString().slice(0, 8);
+  const baseName = `merge_${firstName}-${lastName}-${timePart}`;
+  const outputPath = path.join(outputFolder, `${baseName}.exr`);
+  const previewPath = path.join(outputFolder, `${baseName}-preview.png`);
   const pythonExecutable = getPythonExecutable();
   const scriptPath = getMergeScriptPath();
 
@@ -356,6 +410,9 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("hdr:getRawThumbnail", async (_event, filePath: string) =>
     generateRawThumbnail(filePath),
+  );
+  ipcMain.handle("hdr:getRawExposure", async (_event, filePath: string) =>
+    getRawExposure(filePath),
   );
   ipcMain.handle(
     "hdr:suggestSets",

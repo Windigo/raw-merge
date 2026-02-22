@@ -45,6 +45,8 @@ const api = {
     ipcRenderer.invoke("hdr:readFile", fileName),
   getRawThumbnail: (filePath: string): Promise<Uint8Array> =>
     ipcRenderer.invoke("hdr:getRawThumbnail", filePath),
+  getRawExposure: (filePath: string): Promise<number | null> =>
+    ipcRenderer.invoke("hdr:getRawExposure", filePath),
   suggestSets: (
     filePaths: string[],
     options?: SuggestOptions,
