@@ -362,6 +362,30 @@ class HdrMergeApp extends LitElement {
       border-radius: 6px;
     }
 
+    .radial-tools {
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0b1220;
+      display: grid;
+      gap: 8px;
+    }
+
+    .radial-tools-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      opacity: 0.95;
+    }
+
+    .radial-toggle {
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
     .curves-panel {
       border: 1px solid #374151;
       border-radius: 8px;
@@ -859,6 +883,24 @@ class HdrMergeApp extends LitElement {
       overflow: hidden;
     }
 
+    .radial-mask-outer,
+    .radial-mask-inner {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      border-radius: 999px;
+      z-index: 2;
+    }
+
+    .radial-mask-outer {
+      border: 1.5px solid rgba(248, 250, 252, 0.85);
+      box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.08);
+    }
+
+    .radial-mask-inner {
+      border: 1.5px dashed rgba(248, 250, 252, 0.85);
+    }
+
     .split-line-handle {
       position: absolute;
       top: 0;
@@ -1062,6 +1104,30 @@ class HdrMergeApp extends LitElement {
   private previewBlue = 0;
 
   @state()
+  private radialEnabled = false;
+
+  @state()
+  private radialCenterX = 0.5;
+
+  @state()
+  private radialCenterY = 0.5;
+
+  @state()
+  private radialRadius = 0.22;
+
+  @state()
+  private radialFeather = 0.55;
+
+  @state()
+  private radialExposure = 0;
+
+  @state()
+  private radialWarmth = 0;
+
+  @state()
+  private radialSaturation = 0;
+
+  @state()
   private exportStatusMessage = "";
 
   @state()
@@ -1111,6 +1177,7 @@ class HdrMergeApp extends LitElement {
   private previousBitmap?: ImageBitmap;
   private splitLineDragging = false;
   private splitDragPointerId: number | null = null;
+  private radialDragPointerId: number | null = null;
   private thumbnailLoadGeneration = 0;
 
   private zoomScale = 1;
@@ -1401,6 +1468,104 @@ class HdrMergeApp extends LitElement {
               Reset RGB
             </button>
 
+            <section class="radial-tools">
+              <div class="radial-tools-header">
+                <span>Radial Local Edit</span>
+                <button
+                  class="radial-toggle"
+                  @click=${this.onToggleRadialEdit}
+                  ?disabled=${this.isBusy}
+                >
+                  ${this.radialEnabled ? "Enabled" : "Disabled"}
+                </button>
+              </div>
+              <label class="preview-adjustment-row">
+                <span class="preview-adjustment-label">Radial Radius</span>
+                <span class="preview-adjustment-value"
+                  >${Math.round(this.radialRadius * 100)}%</span
+                >
+                <input
+                  class="preview-adjustment-slider"
+                  type="range"
+                  min="5"
+                  max="65"
+                  step="1"
+                  .value=${String(Math.round(this.radialRadius * 100))}
+                  @input=${this.onRadialRadiusInput}
+                  @change=${this.onPreviewAdjustmentCommit}
+                  aria-label="Radial radius"
+                />
+              </label>
+              <label class="preview-adjustment-row">
+                <span class="preview-adjustment-label">Radial Feather</span>
+                <span class="preview-adjustment-value"
+                  >${Math.round(this.radialFeather * 100)}%</span
+                >
+                <input
+                  class="preview-adjustment-slider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  .value=${String(Math.round(this.radialFeather * 100))}
+                  @input=${this.onRadialFeatherInput}
+                  @change=${this.onPreviewAdjustmentCommit}
+                  aria-label="Radial feather"
+                />
+              </label>
+              <label class="preview-adjustment-row">
+                <span class="preview-adjustment-label">Radial Exposure</span>
+                <span class="preview-adjustment-value"
+                  >${this.formatPreviewExposureEv(this.radialExposure)}</span
+                >
+                <input
+                  class="preview-adjustment-slider"
+                  type="range"
+                  min="-3"
+                  max="3"
+                  step="0.1"
+                  .value=${String(this.radialExposure)}
+                  @input=${this.onRadialExposureInput}
+                  @change=${this.onPreviewAdjustmentCommit}
+                  aria-label="Radial exposure"
+                />
+              </label>
+              <label class="preview-adjustment-row">
+                <span class="preview-adjustment-label">Radial Warmth</span>
+                <span class="preview-adjustment-value"
+                  >${this.formatSignedPercent(this.radialWarmth)}</span
+                >
+                <input
+                  class="preview-adjustment-slider"
+                  type="range"
+                  min="-100"
+                  max="100"
+                  step="1"
+                  .value=${String(this.radialWarmth)}
+                  @input=${this.onRadialWarmthInput}
+                  @change=${this.onPreviewAdjustmentCommit}
+                  aria-label="Radial warmth"
+                />
+              </label>
+              <label class="preview-adjustment-row">
+                <span class="preview-adjustment-label">Radial Saturation</span>
+                <span class="preview-adjustment-value"
+                  >${this.formatSignedPercent(this.radialSaturation)}</span
+                >
+                <input
+                  class="preview-adjustment-slider"
+                  type="range"
+                  min="-100"
+                  max="100"
+                  step="1"
+                  .value=${String(this.radialSaturation)}
+                  @input=${this.onRadialSaturationInput}
+                  @change=${this.onPreviewAdjustmentCommit}
+                  aria-label="Radial saturation"
+                />
+              </label>
+            </section>
+
             <section class="curves-panel">
               <div class="curves-header">
                 <span class="curves-title"
@@ -1431,7 +1596,7 @@ class HdrMergeApp extends LitElement {
                     const heightPercent = Math.max(2, Math.min(100, value * 100));
                     return html`<div
                       class="curves-histogram-backdrop-bar"
-                      style=${`height:${heightPercent.toFixed(2)}%;background:rgb(${tone},${tone},${tone});`}
+                      style=${`height:${heightPercent.toFixed(2)}%;background:rgba(${tone},${tone},${tone},0.58);`}
                     ></div>`;
                   })}
                 </div>
@@ -2055,6 +2220,16 @@ class HdrMergeApp extends LitElement {
         @touchend=${this.onCanvasTouchEnd}
         @touchcancel=${this.onCanvasTouchEnd}
       ></canvas>
+      ${this.radialMaskVisible()
+        ? html`<div
+              class="radial-mask-outer"
+              style=${this.radialOuterMaskStyle()}
+            ></div>
+            <div
+              class="radial-mask-inner"
+              style=${this.radialInnerMaskStyle()}
+            ></div>`
+        : ""}
       ${this.hasCompareSources()
         ? html`
             <div
@@ -2995,6 +3170,11 @@ class HdrMergeApp extends LitElement {
     const greenGain = Math.max(0, 1 + this.previewGreen / 100);
     const blueGain = Math.max(0, 1 + this.previewBlue / 100);
     const hasCurve = !this.curveIsIdentity();
+    const hasRadialAdjustment =
+      this.radialEnabled &&
+      (Math.abs(this.radialExposure) > 1e-6 ||
+        Math.abs(this.radialWarmth) > 1e-6 ||
+        Math.abs(this.radialSaturation) > 1e-6);
 
     if (Math.abs(exposureScale - 1) < 1e-6 && Math.abs(gamma - 1) < 1e-6) {
       if (
@@ -3006,6 +3186,7 @@ class HdrMergeApp extends LitElement {
         Math.abs(redGain - 1) < 1e-6 &&
         Math.abs(greenGain - 1) < 1e-6 &&
         Math.abs(blueGain - 1) < 1e-6 &&
+        !hasRadialAdjustment &&
         !hasCurve
       ) {
         return;
@@ -3019,6 +3200,11 @@ class HdrMergeApp extends LitElement {
     const saturationScale = Math.max(0, 1 + saturation);
     const tintRedBlueGain = 1 + tint * 0.18;
     const tintGreenGain = 1 - tint * 0.24;
+    const radialActive =
+      this.radialEnabled &&
+      (Math.abs(this.radialExposure) > 1e-6 ||
+        Math.abs(this.radialWarmth) > 1e-6 ||
+        Math.abs(this.radialSaturation) > 1e-6);
     const curveLut = this.buildCurveLut();
     const lut = new Uint8ClampedArray(256);
 
@@ -3115,7 +3301,21 @@ class HdrMergeApp extends LitElement {
     );
     const data = imageData.data;
 
-    for (let index = 0; index < data.length; index += 4) {
+    const radialCenterX = this.radialCenterX * workingContext.width;
+    const radialCenterY = this.radialCenterY * workingContext.height;
+    const radialRadiusPx = Math.max(
+      1,
+      this.radialRadius * Math.min(workingContext.width, workingContext.height),
+    );
+    const radialFeather = Math.min(1, Math.max(0, this.radialFeather));
+    const radialInnerRatio = Math.max(0, 1 - radialFeather);
+    const radialExposureScale = Math.pow(2, this.radialExposure);
+    const radialWarmthValue = this.radialWarmth / 100;
+    const radialWarmthRedGain = 1 + radialWarmthValue * 0.22;
+    const radialWarmthBlueGain = 1 - radialWarmthValue * 0.22;
+    const radialSaturationScale = Math.max(0, 1 + this.radialSaturation / 100);
+
+    for (let index = 0, pixel = 0; index < data.length; index += 4, pixel += 1) {
       const mappedRed = lut[data[index]];
       const mappedGreen = lut[data[index + 1]];
       const mappedBlue = lut[data[index + 2]];
@@ -3181,9 +3381,87 @@ class HdrMergeApp extends LitElement {
         Math.max(0, saturatedBlue * blueGain),
       );
 
-      const red = Math.round(balancedRed);
-      const green = Math.round(balancedGreen);
-      const blue = Math.round(balancedBlue);
+      let localRed = balancedRed;
+      let localGreen = balancedGreen;
+      let localBlue = balancedBlue;
+
+      if (radialActive) {
+        const pixelX = pixel % workingContext.width;
+        const pixelY = Math.floor(pixel / workingContext.width);
+        const dx = pixelX - radialCenterX;
+        const dy = pixelY - radialCenterY;
+        const distanceRatio = Math.hypot(dx, dy) / radialRadiusPx;
+
+        let radialMask = 0;
+        if (distanceRatio <= 1) {
+          if (radialFeather <= 1e-6 || distanceRatio <= radialInnerRatio) {
+            radialMask = 1;
+          } else {
+            const featherSpan = Math.max(1e-6, 1 - radialInnerRatio);
+            radialMask = 1 - (distanceRatio - radialInnerRatio) / featherSpan;
+            radialMask = Math.min(1, Math.max(0, radialMask));
+          }
+        }
+
+        if (radialMask > 0) {
+          const exposureFactor = Math.pow(radialExposureScale, radialMask);
+          let adjustedRed = Math.min(255, Math.max(0, localRed * exposureFactor));
+          let adjustedGreen = Math.min(
+            255,
+            Math.max(0, localGreen * exposureFactor),
+          );
+          let adjustedBlue = Math.min(
+            255,
+            Math.max(0, localBlue * exposureFactor),
+          );
+
+          adjustedRed = Math.min(
+            255,
+            Math.max(0, adjustedRed * (1 + (radialWarmthRedGain - 1) * radialMask)),
+          );
+          adjustedGreen = Math.min(
+            255,
+            Math.max(0, adjustedGreen),
+          );
+          adjustedBlue = Math.min(
+            255,
+            Math.max(0, adjustedBlue * (1 + (radialWarmthBlueGain - 1) * radialMask)),
+          );
+
+          const radialLuminance =
+            0.2126 * adjustedRed + 0.7152 * adjustedGreen + 0.0722 * adjustedBlue;
+          const radialSatScale = 1 + (radialSaturationScale - 1) * radialMask;
+          adjustedRed = Math.min(
+            255,
+            Math.max(
+              0,
+              radialLuminance + (adjustedRed - radialLuminance) * radialSatScale,
+            ),
+          );
+          adjustedGreen = Math.min(
+            255,
+            Math.max(
+              0,
+              radialLuminance + (adjustedGreen - radialLuminance) * radialSatScale,
+            ),
+          );
+          adjustedBlue = Math.min(
+            255,
+            Math.max(
+              0,
+              radialLuminance + (adjustedBlue - radialLuminance) * radialSatScale,
+            ),
+          );
+
+          localRed = adjustedRed;
+          localGreen = adjustedGreen;
+          localBlue = adjustedBlue;
+        }
+      }
+
+      const red = Math.round(localRed);
+      const green = Math.round(localGreen);
+      const blue = Math.round(localBlue);
 
       data[index] = curveLut[red];
       data[index + 1] = curveLut[green];
@@ -3344,11 +3622,26 @@ class HdrMergeApp extends LitElement {
   }
 
   private onCanvasPointerDown(event: PointerEvent): void {
-    if (!this.currentCanvas || this.zoomScale <= 1) {
+    if (!this.currentCanvas) {
       return;
     }
 
     if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    if (this.radialEnabled) {
+      const point = this.clientToCanvasPoint(event.clientX, event.clientY);
+      this.setRadialCenterFromCanvasPoint(point.x, point.y);
+      this.radialDragPointerId = event.pointerId;
+      this.currentCanvas.setPointerCapture(event.pointerId);
+      this.currentCanvas.style.cursor = "crosshair";
+      this.requestPreviewRender("interactive");
+      event.preventDefault();
+      return;
+    }
+
+    if (this.zoomScale <= 1) {
       return;
     }
 
@@ -3364,6 +3657,18 @@ class HdrMergeApp extends LitElement {
   }
 
   private onCanvasPointerMove(event: PointerEvent): void {
+    if (
+      this.currentCanvas &&
+      this.radialDragPointerId !== null &&
+      this.radialDragPointerId === event.pointerId
+    ) {
+      const point = this.clientToCanvasPoint(event.clientX, event.clientY);
+      this.setRadialCenterFromCanvasPoint(point.x, point.y);
+      this.requestPreviewRender("interactive");
+      event.preventDefault();
+      return;
+    }
+
     if (!this.currentCanvas || !this.pointerPanState) {
       return;
     }
@@ -3385,6 +3690,18 @@ class HdrMergeApp extends LitElement {
   }
 
   private onCanvasPointerUp(event: PointerEvent): void {
+    if (
+      this.currentCanvas &&
+      this.radialDragPointerId !== null &&
+      this.radialDragPointerId === event.pointerId
+    ) {
+      this.radialDragPointerId = null;
+      this.currentCanvas.style.cursor = this.zoomScale > 1 ? "grab" : "default";
+      this.requestPreviewRender("full");
+      event.preventDefault();
+      return;
+    }
+
     if (!this.currentCanvas || !this.pointerPanState) {
       return;
     }
@@ -3676,6 +3993,111 @@ class HdrMergeApp extends LitElement {
     this.previewBlue = 0;
     this.requestPreviewRender("full");
   };
+
+  private onToggleRadialEdit = (): void => {
+    this.radialEnabled = !this.radialEnabled;
+    if (!this.radialEnabled) {
+      this.radialDragPointerId = null;
+      if (this.currentCanvas) {
+        this.currentCanvas.style.cursor = this.zoomScale > 1 ? "grab" : "default";
+      }
+    }
+    this.requestPreviewRender("full");
+  };
+
+  private onRadialRadiusInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.radialRadius = Math.min(0.65, Math.max(0.05, value / 100));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onRadialFeatherInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.radialFeather = Math.min(1, Math.max(0, value / 100));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onRadialExposureInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.radialExposure = Math.min(3, Math.max(-3, value));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onRadialWarmthInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.radialWarmth = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
+  private onRadialSaturationInput(event: Event): void {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    this.radialSaturation = Math.min(100, Math.max(-100, value));
+    this.requestPreviewRender("interactive");
+  }
+
+  private setRadialCenterFromCanvasPoint(canvasX: number, canvasY: number): void {
+    if (!this.currentCanvas || this.currentCanvas.width <= 0 || this.currentCanvas.height <= 0) {
+      return;
+    }
+
+    this.radialCenterX = Math.min(1, Math.max(0, canvasX / this.currentCanvas.width));
+    this.radialCenterY = Math.min(1, Math.max(0, canvasY / this.currentCanvas.height));
+  }
+
+  private radialMaskVisible(): boolean {
+    return (
+      this.radialEnabled &&
+      Boolean(this.currentCanvas) &&
+      Boolean(this.currentPreviewPath || this.previousPreviewPath)
+    );
+  }
+
+  private radialOuterMaskStyle(): string {
+    if (!this.currentCanvas) {
+      return "display:none;";
+    }
+
+    const width = this.currentCanvas.clientWidth;
+    const height = this.currentCanvas.clientHeight;
+    const radiusPx = this.radialRadius * Math.min(width, height);
+    const centerX = this.currentCanvas.offsetLeft + this.radialCenterX * width;
+    const centerY = this.currentCanvas.offsetTop + this.radialCenterY * height;
+    return `left:${centerX}px;top:${centerY}px;width:${(radiusPx * 2).toFixed(2)}px;height:${(radiusPx * 2).toFixed(2)}px;`;
+  }
+
+  private radialInnerMaskStyle(): string {
+    if (!this.currentCanvas) {
+      return "display:none;";
+    }
+
+    const width = this.currentCanvas.clientWidth;
+    const height = this.currentCanvas.clientHeight;
+    const radiusPx = this.radialRadius * Math.min(width, height);
+    const innerRadiusPx = radiusPx * Math.max(0, 1 - this.radialFeather);
+    const centerX = this.currentCanvas.offsetLeft + this.radialCenterX * width;
+    const centerY = this.currentCanvas.offsetTop + this.radialCenterY * height;
+    return `left:${centerX}px;top:${centerY}px;width:${(innerRadiusPx * 2).toFixed(2)}px;height:${(innerRadiusPx * 2).toFixed(2)}px;`;
+  }
 
   private curvePathD(): string {
     const { xs, ys } = this.activeCurveControls();
