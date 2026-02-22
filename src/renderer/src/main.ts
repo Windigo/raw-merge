@@ -11,6 +11,8 @@ const LAST_FOLDER_STORAGE_KEY = "hdr-merge:last-folder";
 
 @customElement("hdr-merge-app")
 class HdrMergeApp extends LitElement {
+  private static readonly curveControlXs = [0, 0.25, 0.5, 0.75, 1] as const;
+
   private static readonly colorOptions = [
     ["srgb", "sRGB"],
     ["adobe", "Adobe RGB"],
@@ -301,6 +303,70 @@ class HdrMergeApp extends LitElement {
       width: 100%;
       accent-color: #e9800a;
       grid-column: 1 / -1;
+    }
+
+    .curves-panel {
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 8px;
+      background: #0b1220;
+      display: grid;
+      gap: 8px;
+    }
+
+    .curves-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .curves-title {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .curves-reset {
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
+    .curves-editor {
+      width: 100%;
+      height: 152px;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      background: #030712;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    .curves-grid-line {
+      stroke: #1f2937;
+      stroke-width: 1;
+      shape-rendering: crispEdges;
+    }
+
+    .curves-diagonal {
+      stroke: #4b5563;
+      stroke-width: 1;
+      stroke-dasharray: 4 3;
+      fill: none;
+    }
+
+    .curves-path {
+      stroke: #e9800a;
+      stroke-width: 2;
+      fill: none;
+    }
+
+    .curves-point {
+      fill: #fbbf24;
+      stroke: #111827;
+      stroke-width: 1.5;
+      cursor: ns-resize;
     }
 
     .export-actions {
@@ -658,6 +724,12 @@ class HdrMergeApp extends LitElement {
   @state()
   private exportJpegTarget: "a" | "b" = "b";
 
+  @state()
+  private curveControlXsCurrent: number[] = [...HdrMergeApp.curveControlXs];
+
+  @state()
+  private curveControlYs = [0, 0.25, 0.5, 0.75, 1];
+
   private currentPreviewPath = "";
   private previousPreviewPath = "";
 
@@ -688,6 +760,10 @@ class HdrMergeApp extends LitElement {
     lastX: number;
     lastY: number;
   };
+
+  private curveDragIndex: number | null = null;
+  private curveDragPointerId: number | null = null;
+  private readonly maxCurvePoints = 12;
 
   private async getApi() {
     const maxWaitMs = 1500;
@@ -731,6 +807,7 @@ class HdrMergeApp extends LitElement {
 
   disconnectedCallback(): void {
     this.endSplitLineDrag();
+    this.endCurveDrag();
     this.revokeThumbnailUrls();
     super.disconnectedCallback();
   }
@@ -859,6 +936,57 @@ class HdrMergeApp extends LitElement {
                 aria-label="Preview saturation"
               />
             </label>
+
+            <section class="curves-panel">
+              <div class="curves-header">
+                <span class="curves-title">Curves</span>
+                <button
+                  class="curves-reset"
+                  @click=${this.onResetCurves}
+                  ?disabled=${this.isBusy}
+                >
+                  Reset
+                </button>
+              </div>
+              <svg
+                id="curveEditor"
+                class="curves-editor"
+                viewBox="0 0 220 140"
+                preserveAspectRatio="none"
+                @pointerdown=${this.onCurveEditorPointerDown}
+                aria-label="Curves editor"
+              >
+                ${[0.25, 0.5, 0.75].map(
+                  (t) => html`
+                    <line
+                      class="curves-grid-line"
+                      x1=${String(220 * t)}
+                      y1="0"
+                      x2=${String(220 * t)}
+                      y2="140"
+                    ></line>
+                    <line
+                      class="curves-grid-line"
+                      x1="0"
+                      y1=${String(140 * t)}
+                      x2="220"
+                      y2=${String(140 * t)}
+                    ></line>
+                  `,
+                )}
+                <path class="curves-diagonal" d="M 0 140 L 220 0"></path>
+                <path class="curves-path" d=${this.curvePathD()}></path>
+                ${this.curveControlXsCurrent.map((x, index) => {
+                  const y = this.curveControlYs[index] ?? x;
+                  return html`<circle
+                    class="curves-point"
+                    cx=${String(x * 220)}
+                    cy=${String((1 - y) * 140)}
+                    r="6"
+                  ></circle>`;
+                })}
+              </svg>
+            </section>
           </section>
 
           ${this.mergedOutputPath
@@ -1305,6 +1433,8 @@ class HdrMergeApp extends LitElement {
     this.exportStatusMessage = "";
     this.previewSettingsLabel = "";
     this.previousPreviewSettingsLabel = "";
+    this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
+    this.curveControlYs = [...HdrMergeApp.curveControlXs];
     this.exportJpegTarget = "b";
     this.currentPreviewPath = "";
     this.previousPreviewPath = "";
@@ -1696,12 +1826,14 @@ class HdrMergeApp extends LitElement {
     const contrast = this.previewContrast / 100;
     const warmth = this.previewWarmth / 100;
     const saturation = this.previewSaturation / 100;
+    const hasCurve = !this.curveIsIdentity();
 
     if (Math.abs(exposureScale - 1) < 1e-6 && Math.abs(gamma - 1) < 1e-6) {
       if (
         Math.abs(contrast) < 1e-6 &&
         Math.abs(warmth) < 1e-6 &&
-        Math.abs(saturation) < 1e-6
+        Math.abs(saturation) < 1e-6 &&
+        !hasCurve
       ) {
         return;
       }
@@ -1714,6 +1846,7 @@ class HdrMergeApp extends LitElement {
     const warmthRedGain = 1 + warmth * 0.22;
     const warmthBlueGain = 1 - warmth * 0.22;
     const saturationScale = Math.max(0, 1 + saturation);
+    const curveLut = this.buildCurveLut();
     const lut = new Uint8ClampedArray(256);
 
     for (let index = 0; index < 256; index += 1) {
@@ -1752,9 +1885,13 @@ class HdrMergeApp extends LitElement {
         Math.max(0, luminance + (warmedBlue - luminance) * saturationScale),
       );
 
-      data[index] = Math.round(saturatedRed);
-      data[index + 1] = Math.round(saturatedGreen);
-      data[index + 2] = Math.round(saturatedBlue);
+      const red = Math.round(saturatedRed);
+      const green = Math.round(saturatedGreen);
+      const blue = Math.round(saturatedBlue);
+
+      data[index] = curveLut[red];
+      data[index + 1] = curveLut[green];
+      data[index + 2] = curveLut[blue];
     }
 
     context.putImageData(imageData, 0, 0);
@@ -2169,6 +2306,236 @@ class HdrMergeApp extends LitElement {
 
     this.previewSaturation = Math.min(100, Math.max(-100, value));
     void this.renderPreviewIfPossible();
+  }
+
+  private curvePathD(): string {
+    return this.curveControlXsCurrent.map((x, index) => {
+      const y = this.curveControlYs[index] ?? x;
+      const px = x * 220;
+      const py = (1 - y) * 140;
+      return `${index === 0 ? "M" : "L"} ${px} ${py}`;
+    }).join(" ");
+  }
+
+  private onCurveEditorPointerDown(event: PointerEvent): void {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    const svg = this.renderRoot.querySelector("#curveEditor") as
+      | SVGSVGElement
+      | null;
+    if (!svg) {
+      return;
+    }
+
+    const normalized = this.clientToCurveNormalized(svg, event.clientX, event.clientY);
+    if (!normalized) {
+      return;
+    }
+
+    const { x: normalizedX, y: normalizedY } = normalized;
+    this.curveDragIndex = this.pickOrInsertCurvePoint(normalizedX, normalizedY);
+    this.curveDragPointerId = event.pointerId;
+    window.addEventListener("pointermove", this.onCurveDragPointerMove);
+    window.addEventListener("pointerup", this.onCurveDragPointerUp);
+    window.addEventListener("pointercancel", this.onCurveDragPointerUp);
+    this.updateCurvePointFromClientPosition(event.clientX, event.clientY);
+    event.preventDefault();
+  }
+
+  private onCurveDragPointerMove = (event: PointerEvent): void => {
+    if (
+      this.curveDragIndex === null ||
+      this.curveDragPointerId !== event.pointerId
+    ) {
+      return;
+    }
+
+    this.updateCurvePointFromClientPosition(event.clientX, event.clientY);
+    event.preventDefault();
+  };
+
+  private onCurveDragPointerUp = (event: PointerEvent): void => {
+    if (
+      this.curveDragIndex === null ||
+      this.curveDragPointerId !== event.pointerId
+    ) {
+      return;
+    }
+
+    this.updateCurvePointFromClientPosition(event.clientX, event.clientY);
+    this.endCurveDrag();
+    event.preventDefault();
+  };
+
+  private endCurveDrag(): void {
+    window.removeEventListener("pointermove", this.onCurveDragPointerMove);
+    window.removeEventListener("pointerup", this.onCurveDragPointerUp);
+    window.removeEventListener("pointercancel", this.onCurveDragPointerUp);
+    this.curveDragIndex = null;
+    this.curveDragPointerId = null;
+  }
+
+  private updateCurvePointFromClientPosition(
+    clientX: number,
+    clientY: number,
+  ): void {
+    if (this.curveDragIndex === null) {
+      return;
+    }
+
+    const svg = this.renderRoot.querySelector("#curveEditor") as
+      | SVGSVGElement
+      | null;
+    if (!svg) {
+      return;
+    }
+
+    const normalized = this.clientToCurveNormalized(svg, clientX, clientY);
+    if (!normalized) {
+      return;
+    }
+
+    const normalizedX = normalized.x;
+    const normalizedY = normalized.y;
+
+    const nextXs = [...this.curveControlXsCurrent];
+    const nextYs = [...this.curveControlYs];
+    const index = this.curveDragIndex;
+    const lastIndex = nextXs.length - 1;
+
+    if (index === 0) {
+      nextXs[0] = 0;
+      nextYs[0] = 0;
+    } else if (index === lastIndex) {
+      nextXs[lastIndex] = 1;
+      nextYs[lastIndex] = 1;
+    } else {
+      const minGap = 0.03;
+      const minX = nextXs[index - 1] + minGap;
+      const maxX = nextXs[index + 1] - minGap;
+      nextXs[index] = Math.max(minX, Math.min(maxX, normalizedX));
+      nextYs[index] = normalizedY;
+    }
+
+    this.curveControlXsCurrent = nextXs;
+    this.curveControlYs = nextYs;
+    void this.renderPreviewIfPossible();
+  }
+
+  private clientToCurveNormalized(
+    svg: SVGSVGElement,
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null {
+    const ctm = svg.getScreenCTM();
+    if (!ctm) {
+      return null;
+    }
+
+    const point = new DOMPoint(clientX, clientY);
+    const local = point.matrixTransform(ctm.inverse());
+    const normalizedX = Math.max(0, Math.min(1, local.x / 220));
+    const normalizedY = Math.max(0, Math.min(1, 1 - local.y / 140));
+    return { x: normalizedX, y: normalizedY };
+  }
+
+  private onResetCurves(): void {
+    this.curveControlXsCurrent = [...HdrMergeApp.curveControlXs];
+    this.curveControlYs = [...HdrMergeApp.curveControlXs];
+    void this.renderPreviewIfPossible();
+  }
+
+  private pickOrInsertCurvePoint(normalizedX: number, normalizedY: number): number {
+    const nearestIndex = this.closestCurvePointIndex(normalizedX, normalizedY);
+    const nearestX = this.curveControlXsCurrent[nearestIndex] ?? 0;
+    const nearestY = this.curveControlYs[nearestIndex] ?? nearestX;
+    const distance = Math.hypot(nearestX - normalizedX, nearestY - normalizedY);
+    const pickThreshold = 0.07;
+
+    if (distance <= pickThreshold || this.curveControlXsCurrent.length >= this.maxCurvePoints) {
+      return nearestIndex;
+    }
+
+    const nextXs = [...this.curveControlXsCurrent];
+    const nextYs = [...this.curveControlYs];
+    const insertX = Math.max(0.01, Math.min(0.99, normalizedX));
+    const insertY = Math.max(0, Math.min(1, normalizedY));
+
+    let insertIndex = nextXs.length - 1;
+    for (let index = 1; index < nextXs.length; index += 1) {
+      if (insertX < nextXs[index]) {
+        insertIndex = index;
+        break;
+      }
+    }
+
+    const minGap = 0.03;
+    const leftBound = nextXs[insertIndex - 1] + minGap;
+    const rightBound = nextXs[insertIndex] - minGap;
+    if (leftBound >= rightBound) {
+      return nearestIndex;
+    }
+
+    const clampedInsertX = Math.max(leftBound, Math.min(rightBound, insertX));
+    nextXs.splice(insertIndex, 0, clampedInsertX);
+    nextYs.splice(insertIndex, 0, insertY);
+
+    this.curveControlXsCurrent = nextXs;
+    this.curveControlYs = nextYs;
+    return insertIndex;
+  }
+
+  private closestCurvePointIndex(normalizedX: number, normalizedY: number): number {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    this.curveControlXsCurrent.forEach((x, index) => {
+      const y = this.curveControlYs[index] ?? x;
+      const distance = Math.hypot(x - normalizedX, y - normalizedY);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+
+    return bestIndex;
+  }
+
+  private curveIsIdentity(): boolean {
+    return HdrMergeApp.curveControlXs.every((x, index) => {
+      const currentX = this.curveControlXsCurrent[index] ?? x;
+      const currentY = this.curveControlYs[index] ?? x;
+      return Math.abs(currentX - x) < 1e-6 && Math.abs(currentY - x) < 1e-6;
+    });
+  }
+
+  private buildCurveLut(): Uint8ClampedArray {
+    const lut = new Uint8ClampedArray(256);
+    const xs = this.curveControlXsCurrent;
+    const ys = this.curveControlYs;
+
+    for (let value = 0; value < 256; value += 1) {
+      const input = value / 255;
+      let segment = xs.length - 2;
+      for (let index = 0; index < xs.length - 1; index += 1) {
+        if (input <= xs[index + 1]) {
+          segment = index;
+          break;
+        }
+      }
+
+      const x0 = xs[segment];
+      const x1 = xs[segment + 1];
+      const y0 = ys[segment] ?? x0;
+      const y1 = ys[segment + 1] ?? x1;
+      const t = x1 === x0 ? 0 : (input - x0) / (x1 - x0);
+      const output = y0 + (y1 - y0) * t;
+      lut[value] = Math.round(Math.max(0, Math.min(1, output)) * 255);
+    }
+
+    return lut;
   }
 
   private hasPreviewToExport(): boolean {
